@@ -1,0 +1,153 @@
+diff --git a/src/llama-model.cpp b/src/llama-model.cpp
+--- a/src/llama-model.cpp
++++ b/src/llama-model.cpp
+@@ -30,6 +30,7 @@
+ #include <cfloat>
+ #include <cstdint>
+ #include <cstring>
++#include <cstdlib>
+ #include <cmath>
+ #include <functional>
+ #include <map>
+@@ -1279,6 +1280,8 @@
+ 
+     // model memory mapped files
+     llama_mmaps mappings;
++    // Only borrowed handles of direct GGUF host mappings, never owned/freed here.
++    std::vector<ggml_backend_buffer_t> moe_readahead_buffers;
+ 
+     // objects representing data potentially being locked in memory
+     llama_mlocks mlock_bufs;
+@@ -1609,6 +1612,10 @@
+     const int n_gpu_layers = this->n_gpu_layers();
+ 
+     const bool use_mmap_buffer = true;
++#ifdef __linux__
++    const char * readahead = std::getenv("LLAMA_EXPERIMENTAL_MOE_DEMAND_READAHEAD");
++    const bool mark_mapped_experts = readahead && readahead[0] == '1' && readahead[1] == '\0';
++#endif
+ 
+     this->ml = &ml; // to be used by create_tensor() and load_arch_tensors()
+ 
+@@ -1972,6 +1979,15 @@
+                         throw std::runtime_error(format("unable to allocate %s buffer", ggml_backend_buft_name(buft)));
+                     }
+                     bufs.emplace_back(buf);
++#ifdef __linux__
++                    if (mark_mapped_experts && ggml_backend_buffer_is_host(buf)) {
++                        try {
++                            pimpl->moe_readahead_buffers.push_back(buf);
++                        } catch (const std::bad_alloc &) {
++                            // Optional advice metadata. The weight itself is already owned.
++                        }
++                    }
++#endif
+                 }
+             }
+         } else {
+@@ -2769,6 +2785,11 @@
+ 
+ bool llama_model::has_tensor_overrides() const {
+     return pimpl->has_tensor_overrides;
++}
++
++bool llama_model::moe_readahead_eligible(const ggml_tensor * weight) const {
++    const auto & buffers = pimpl->moe_readahead_buffers;
++    return std::find(buffers.begin(), buffers.end(), weight->buffer) != buffers.end();
+ }
+ 
+ const ggml_tensor * llama_model::get_tensor(const char * name) const {
+diff --git a/src/llama-model.h b/src/llama-model.h
+--- a/src/llama-model.h
++++ b/src/llama-model.h
+@@ -925,6 +925,7 @@
+ 
+     bool has_tensor_overrides() const;
+ 
++    bool moe_readahead_eligible(const ggml_tensor * weight) const;
+     const struct ggml_tensor * get_tensor(const char * name) const;
+ 
+     float get_rope_freq_base (const llama_cparams & cparams, int il) const;
+diff --git a/src/llama-moe-cache.cpp b/src/llama-moe-cache.cpp
+--- a/src/llama-moe-cache.cpp
++++ b/src/llama-moe-cache.cpp
+@@ -3,6 +3,7 @@
+ #include "llama-impl.h"
+ #include "llama-memory.h"
+ #include "llama-model.h"
++#include "llama-mmap.h"
+ #include "llama-experimental/upload_pipeline.hpp"
+ #include "llama-experimental/upload_plan.hpp"
+ #include "llama-experimental/upload_scheduler.hpp"
+@@ -488,6 +489,7 @@
+     };
+ 
+     struct layer {
++        bool readahead = false; // loader proved all expert banks directly wrap mapped GGUF bytes
+         int32_t ig = -1;                    // -1 if the layer is not cached
+         ggml_tensor * slot_map = nullptr;   // I32 [1, n_expert] in host memory
+         std::vector<ggml_tensor *> experts; // host expert tensors, in the order of the banks
+@@ -520,6 +522,8 @@
+         size_t layers_all_host = 0;
+         size_t host_layers_without_matching_gpu = 0;
+         size_t eligible_layers = 0;
++        size_t readahead_updates = 0, readahead_ranges = 0, readahead_bytes = 0, readahead_alloc_skips = 0;
++        int64_t readahead_host_us = 0;
+         size_t cache_update_calls = 0;
+         routing_trace routing[2]; // [single-token ubatch, multi-token ubatch]
+         size_t shared_plan_attempts = 0, shared_plan_alloc_fallbacks = 0;
+@@ -753,6 +757,8 @@
+                 layer & l = layers[il];
+                 l.ig      = (int32_t) ig;
+                 l.experts = llama_moe_cache_layer_experts(model.layers[il]);
++                l.readahead = std::all_of(l.experts.begin(), l.experts.end(),
++                        [&](const ggml_tensor * w) { return model.moe_readahead_eligible(w); });
+                 for (size_t ip = 0; ip < l.experts.size(); ++ip) {
+                     ggml_tensor * bank   = g.banks[ip];
+                     ggml_tensor * cached = ggml_view_3d(ctx, bank, bank->ne[0], bank->ne[1], g.n_slots, bank->nb[1], bank->nb[2], 0);
+@@ -993,6 +999,34 @@
+             GGML_ABORT("the MoE cache is too small for the experts selected in layer %d", il);
+         }
+         const int64_t trace_plan_end = trace.enabled ? ggml_time_us() : 0;
++
++        // Strata dsv41 demand prefetch: tell the OS about every matrix of
++        // the already selected, missing experts before touching any one of
++        // them. Linux-only at model-load admission. No extra DMA, no page
++        // drops/locks; the existing upload remains authoritative on all paths.
++        if (l.readahead && !batched && !fills.empty()) {
++            try {
++                llama_memory_ranges ranges;
++                ranges.reserve(l.experts.size()*fills.size());
++                size_t requested = 0;
++                for (const ggml_tensor * w : l.experts) {
++                    const size_t width = w->nb[2];
++                    for (const auto & f : fills) {
++                        ranges.push_back({ (const uint8_t *) w->data + size_t(f.expert)*width, width });
++                    }
++                    requested += fills.size()*width;
++                }
++                llama_prefetch(std::move(ranges));
++                if (trace.enabled) {
++                    trace.readahead_updates++;
++                    trace.readahead_ranges += l.experts.size()*fills.size();
++                    trace.readahead_bytes += requested;
++                }
++            } catch (const std::bad_alloc &) {
++                if (trace.enabled) trace.readahead_alloc_skips++;
++            }
++            if (trace.enabled) trace.readahead_host_us += ggml_time_us() - trace_plan_end;
++        }
+ 
+         // The EXISTING readback synchronize above completes earlier uploads on
+         // this backend before its staging cursor is reset. Within this update,
+@@ -1235,6 +1269,10 @@
+         if (!trace.enabled) {
+             return;
+         }
++        LLAMA_LOG_INFO("llama_moe_cache: experimental_readahead cache=%p updates=%zu ranges_requested=%zu "
++                       "bytes_requested=%zu alloc_skips=%zu hint_host_us=%" PRId64 "\n",
++                static_cast<const void *>(this), trace.readahead_updates, trace.readahead_ranges,
++                trace.readahead_bytes, trace.readahead_alloc_skips, trace.readahead_host_us);
+         for (size_t i = 0; i < 2; ++i) {
+             const routing_trace & rt = trace.routing[i];
+             LLAMA_LOG_INFO("llama_moe_cache: experimental_routing cache=%p ubatch=%s updates=%zu "

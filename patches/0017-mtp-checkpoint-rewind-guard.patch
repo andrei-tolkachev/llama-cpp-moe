@@ -1,0 +1,150 @@
+diff --git a/common/speculative.cpp b/common/speculative.cpp
+--- a/common/speculative.cpp
++++ b/common/speculative.cpp
+@@ -2,2 +2,3 @@
+ #include "llama-experimental/mtp_verify_window.hpp"
++#include "llama-experimental/mtp_rewind_guard.hpp"
+ 
+@@ -214,2 +215,6 @@
+     virtual void accept(llama_seq_id seq_id, uint16_t n_accepted, bool is_other) = 0;
++
++    // Optional P16B host-only checkpoint hooks, no KV or sampler modifications.
++    virtual void rewind_after_checkpoint(llama_seq_id /*seq_id*/) {}
++    virtual void discard_pending(llama_seq_id /*seq_id*/) {}
+ 
+@@ -1511,2 +1516,4 @@
+     bool    bounded_verify_rows = false; // only when MTP is the sole speculative implementation
++    bool    rewind_guard_enabled = false;
++    std::vector<llama_exp::mtp_rewind_guard> rewind_guards;
+ 
+@@ -1587,2 +1594,7 @@
+                 params.types.size() == 1 && params.types[0] == COMMON_SPECULATIVE_TYPE_DRAFT_MTP;
++        rewind_guard_enabled = llama_exp::mtp_rewind_guard_enabled() &&
++                params.types.size() == 1 && params.types[0] == COMMON_SPECULATIVE_TYPE_DRAFT_MTP;
++        if (rewind_guard_enabled) {
++            rewind_guards.resize(n_seq);
++        }
+ 
+@@ -1669,2 +1681,10 @@
+ 
++        if (rewind_guard_enabled) {
++            for (llama_seq_id seq_id = 0; seq_id < (llama_seq_id) n_seq; ++seq_id) {
++                if (i_batch_beg[seq_id] >= 0) {
++                    rewind_guards[seq_id].clear_verification();
++                }
++            }
++        }
++
+         auto * ctx_tgt = this->params.ctx_tgt;
+@@ -1731,2 +1751,12 @@
+             if (!ok) {
++                // A partial draft decode cannot leave earlier verify rows usable.
++                if (rewind_guard_enabled) {
++                    for (llama_seq_id seq_id = 0; seq_id < (llama_seq_id) n_seq; ++seq_id) {
++                        if (i_batch_beg[seq_id] >= 0) {
++                            rewind_guards[seq_id].clear_verification();
++                            verify_h_rows[seq_id] = 0;
++                            verify_h[seq_id].clear();
++                        }
++                    }
++                }
+                 return false;
+@@ -1756,2 +1786,5 @@
+             std::memcpy(pending_h[seq_id].data(), h_last, row_bytes);
++            if (rewind_guard_enabled) {
++                rewind_guards[seq_id].verified((size_t) n_rows);
++            }
+         }
+@@ -1777,2 +1810,5 @@
+ 
++            if (rewind_guard_enabled) {
++                rewind_guards[seq_id].checkpoint(pending_h[seq_id]);
++            }
+             n_drafting++;
+@@ -1937,2 +1973,5 @@
+ 
++        if (rewind_guard_enabled) {
++            rewind_guards[seq_id].validate_accept(n_accepted);
++        }
+         const llama_exp::mtp_verify_window window((size_t) n_rows, params.n_max, bounded_verify_rows);
+@@ -1941,2 +1980,28 @@
+         std::memcpy(pending_h[seq_id].data(), verify_h[seq_id].data() + i_h * n_embd, row_bytes);
++        if (rewind_guard_enabled) {
++            rewind_guards[seq_id].commit_accept(n_accepted);
++            verify_h_rows[seq_id] = 0;
++            verify_h[seq_id].clear();
++        }
++    }
++
++    void rewind_after_checkpoint(llama_seq_id seq_id) override {
++        if (!rewind_guard_enabled) {
++            return;
++        }
++        if (seq_id < 0 || seq_id >= (llama_seq_id) n_seq) {
++            throw std::out_of_range("MTP rewind has invalid sequence id");
++        }
++        rewind_guards[seq_id].rewind(pending_h[seq_id]);
++        verify_h_rows[seq_id] = 0;
++        verify_h[seq_id].clear();
++    }
++
++    void discard_pending(llama_seq_id seq_id) override {
++        if (!rewind_guard_enabled || seq_id < 0 || seq_id >= (llama_seq_id) n_seq) {
++            return;
++        }
++        rewind_guards[seq_id].discard();
++        verify_h_rows[seq_id] = 0;
++        verify_h[seq_id].clear();
+     }
+@@ -3112,2 +3177,25 @@
+ 
++// Called AFTER the server has restored target/draft model checkpoints.
++// Do not erase impl_last: replay still needs the original drafter's accept().
++void common_speculative_checkpoint_rewind(common_speculative * spec, llama_seq_id seq_id) {
++    if (!spec) {
++        return;
++    }
++    if (seq_id < 0 || (size_t) seq_id >= spec->dparams.size()) {
++        throw std::out_of_range("speculative rewind has invalid sequence id");
++    }
++    for (auto & impl : spec->impls) {
++        impl->rewind_after_checkpoint(seq_id);
++    }
++}
++
++void common_speculative_discard_pending(common_speculative * spec, llama_seq_id seq_id) {
++    if (!spec || seq_id < 0 || (size_t) seq_id >= spec->dparams.size()) {
++        return;
++    }
++    for (auto & impl : spec->impls) {
++        impl->discard_pending(seq_id);
++    }
++}
++
+ // TODO: support the case of more than one speculative implementations having a state
+diff --git a/common/speculative.h b/common/speculative.h
+--- a/common/speculative.h
++++ b/common/speculative.h
+@@ -97,2 +97,7 @@
+ 
++// P16B: restore the MTP host hidden boundary after the existing target/draft
++// KV/recurrent checkpoint restore; and discard stale host snapshots at release.
++void common_speculative_checkpoint_rewind(common_speculative * spec, llama_seq_id seq_id);
++void common_speculative_discard_pending(common_speculative * spec, llama_seq_id seq_id);
++
+ // (optional) get/set internal state
+diff --git a/tools/server/server-context.cpp b/tools/server/server-context.cpp
+--- a/tools/server/server-context.cpp
++++ b/tools/server/server-context.cpp
+@@ -1538,2 +1538,5 @@
+             slot.callback_on_release = [this](int id_slot) {
++                if (spec) {
++                    common_speculative_discard_pending(spec.get(), id_slot);
++                }
+                 queue_tasks.pop_deferred_task(id_slot);
+@@ -4990,2 +4993,5 @@
+                         common_sampler_copy(smpl_save.get(), slot.smpl.get());
++                        // P16B: replay uses the pre-draft host boundary after
++                        // the target/draft KV + recurrent checkpoint restore.
++                        common_speculative_checkpoint_rewind(spec.get(), slot.id);
+ 

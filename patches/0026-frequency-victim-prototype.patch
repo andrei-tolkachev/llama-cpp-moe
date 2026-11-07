@@ -1,0 +1,164 @@
+--- a/src/llama-moe-cache.cpp
++++ b/src/llama-moe-cache.cpp
+@@ -48,6 +48,58 @@
+     uint32_t seen_gen = 0;
+     std::vector<int32_t> uniq;
+ 
++    // Opt-in adaptation of Strata's decayed expert usage policy. Keep GGML's
++    // exact uploads and current-request protection; only victim selection changes.
++    bool frequency = false;
++    uint64_t frequency_calls = 0;
++    std::vector<float> usage;
++    std::vector<int32_t> heap;
++    std::vector<int32_t> heap_pos;
++    std::vector<uint64_t> touched;
++
++    bool colder(int32_t a, int32_t b) const {
++        const float ua = key_of[a] < 0 ? -1.0f : usage[key_of[a]];
++        const float ub = key_of[b] < 0 ? -1.0f : usage[key_of[b]];
++        if (ua != ub) return ua < ub;
++        if (touched[a] != touched[b]) return touched[a] < touched[b];
++        return a < b;
++    }
++
++    void heap_swap(size_t a, size_t b) {
++        std::swap(heap[a], heap[b]);
++        heap_pos[heap[a]] = int32_t(a);
++        heap_pos[heap[b]] = int32_t(b);
++    }
++
++    void heap_up(size_t i) {
++        while (i > 0 && colder(heap[i], heap[(i - 1)/2])) {
++            heap_swap(i, (i - 1)/2);
++            i = (i - 1)/2;
++        }
++    }
++
++    void heap_down(size_t i) {
++        while (2*i + 1 < heap.size()) {
++            size_t c = 2*i + 1;
++            if (c + 1 < heap.size() && colder(heap[c + 1], heap[c])) ++c;
++            if (!colder(heap[c], heap[i])) break;
++            heap_swap(i, c);
++            i = c;
++        }
++    }
++
++    void heap_remove(int32_t s) {
++        const size_t i = heap_pos[s];
++        GGML_ASSERT(i < heap.size() && heap[i] == s);
++        heap_swap(i, heap.size() - 1);
++        heap.pop_back();
++        heap_pos[s] = -1;
++        if (i < heap.size()) {
++            if (i > 0 && colder(heap[i], heap[(i - 1)/2])) heap_up(i);
++            else heap_down(i);
++        }
++    }
++
+     void init(int32_t n_layer, int32_t n_expert, int32_t n_slots) {
+         this->n_expert = n_expert;
+         this->n_slots  = n_slots;
+@@ -57,6 +109,14 @@
+         next.resize(n_slots);
+         is_protected.resize(n_slots);
+         seen.assign(n_expert, 0);
++        const char * env = std::getenv("LLAMA_EXPERIMENTAL_MOE_FREQUENCY");
++        frequency = env && env[0] == '1' && env[1] == '\0';
++        if (frequency) {
++            usage.assign(size_t(n_layer)*n_expert, 0.0f);
++            heap.reserve(n_slots);
++            heap_pos.resize(n_slots);
++            touched.assign(n_slots, 0);
++        }
+         invalidate_banks();
+     }
+ 
+@@ -76,6 +136,14 @@
+         }
+         head[0] = 0;
+         tail[0] = n_slots - 1;
++        if (frequency) {
++            heap.clear();
++            std::fill(touched.begin(), touched.end(), 0);
++            for (int32_t s = 0; s < n_slots; ++s) {
++                heap_pos[s] = s;
++                heap.push_back(s);
++            }
++        }
+     }
+ 
+     // move slot s to the most recently used end of a segment
+@@ -132,6 +200,8 @@
+         int32_t slot;
+     };
+ 
++    bool plan_frequency(int32_t il, std::vector<fill> & fills, size_t & n_hit);
++
+     // give a slot to each expert selected by ids in layer il, evicting from probation first
+     // returns false if the ids select more distinct experts than there are slots
+     bool plan(int32_t il, const int32_t * ids, size_t n_ids, std::vector<fill> & fills, size_t & n_hit) {
+@@ -154,6 +224,8 @@
+             return false;
+         }
+ 
++        if (frequency) return plan_frequency(il, fills, n_hit);
++
+         int32_t * slots = slot_map[il];
+ 
+         // promote hits before choosing victims for misses
+@@ -185,7 +257,7 @@
+     // across fills; hit promotion must finish before these positions are taken.
+     bool plan_reuse(int32_t il, const int32_t * ids, size_t n_ids, std::vector<fill> & fills, size_t & n_hit) {
+         // A single ID has neither useful sorting nor repeated victim scans.
+-        if (n_ids <= 1) {
++        if (frequency || n_ids <= 1) {
+             return plan(il, ids, n_ids, fills, n_hit);
+         }
+         fills.clear();
+@@ -251,6 +323,45 @@
+         return true;
+     }
+ };
++
++bool moe_cache_slru::plan_frequency(int32_t il, std::vector<fill> & fills, size_t & n_hit) {
++    // Strata defaults to usage decay 0.7; decay once per 16 layer sweeps here.
++    // Rebuild after rounding: equal scores still need the recency tie-breaker.
++    if (++frequency_calls % (16*slot_map.size()) == 0) {
++        for (auto & u : usage) u *= 0.7f;
++        for (size_t i = heap.size()/2; i > 0; --i) heap_down(i - 1);
++    }
++    int32_t * slots = slot_map[il];
++    for (int32_t e : uniq) {
++        if (slots[e] >= 0) {
++            heap_remove(slots[e]);
++            ++n_hit;
++        }
++        usage[size_t(il)*n_expert + e] += 1.0f;
++    }
++    std::sort(uniq.begin(), uniq.end());
++    for (int32_t e : uniq) {
++        if (slots[e] >= 0) continue;
++        GGML_ASSERT(!heap.empty());
++        const int32_t s = heap.front();
++        heap_remove(s);
++        if (key_of[s] >= 0) {
++            slot_map[key_of[s]/n_expert][key_of[s]%n_expert] = -1;
++        }
++        key_of[s] = il*n_expert + e;
++        slots[e] = s;
++        fills.push_back({ e, s });
++    }
++    // No currently selected slot can be recycled until all fills are assigned.
++    for (int32_t e : uniq) {
++        const int32_t s = slots[e];
++        touched[s] = frequency_calls;
++        heap_pos[s] = int32_t(heap.size());
++        heap.push_back(s);
++        heap_up(heap.size() - 1);
++    }
++    return true;
++}
+ 
+ // An opt-in limit, in whole MiB. Invalid input disables the experiment rather
+ // than silently accepting a partial decimal or an unbounded allocation.

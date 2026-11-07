@@ -1,0 +1,100 @@
+diff --git a/ggml/src/ggml-cpu/arch/x86/quants.c b/ggml/src/ggml-cpu/arch/x86/quants.c
+--- a/ggml/src/ggml-cpu/arch/x86/quants.c
++++ b/ggml/src/ggml-cpu/arch/x86/quants.c
+@@ -3321,6 +3321,15 @@
+ #endif
+ }
+ 
++#if defined(__AVX512BITALG__) && defined(__AVX512VL__) && defined(__AVX512BW__) && defined(__BMI2__)
++// Expand four packed 7-bit sign indices to four AVX-512 byte masks.
++static inline __mmask32 iq3_xxs_signmask(uint32_t packed) {
++    const __m128i low = _mm_cvtsi32_si128(_pdep_u32(packed, 0x7f7f7f7fu));
++    const __m128i parity = _mm_and_si128(_mm_slli_epi32(_mm_popcnt_epi8(low), 7), _mm_set1_epi8(-128));
++    return (__mmask32) _mm_cvtsi128_si32(_mm_or_si128(low, parity));
++}
++#endif
++
+ void ggml_vec_dot_iq3_xxs_q8_K(int n, float * GGML_RESTRICT s, size_t bs, const void * GGML_RESTRICT vx, size_t bx, const void * GGML_RESTRICT vy, size_t by, int nrc) {
+     assert(n % QK_K == 0);
+     assert(nrc == 1);
+@@ -3336,6 +3345,9 @@
+ 
+ #if defined(__AVX2__)
+ 
++#if defined(__AVX512BITALG__) && defined(__AVX512VL__) && defined(__AVX512BW__) && defined(__BMI2__)
++    const bool use_signmask = ggml_cpu_iq3_xxs_signmask_enabled();
++#endif
+     const uint64_t * signs64 = (const uint64_t *)keven_signs_q2xs;
+ 
+     uint32_t aux32[2];
+@@ -3358,12 +3370,21 @@
+                                                   iq3xxs_grid[q3[3]], iq3xxs_grid[q3[2]], iq3xxs_grid[q3[1]], iq3xxs_grid[q3[0]]);
+             q3 += 8;
+             memcpy(aux32, gas, 8); gas += 8;
+-            const __m256i s2_1 = _mm256_set_epi64x(signs64[(aux32[0] >> 21) & 127], signs64[(aux32[0] >> 14) & 127],
+-                                                   signs64[(aux32[0] >>  7) & 127], signs64[(aux32[0] >>  0) & 127]);
+-            const __m256i s2_2 = _mm256_set_epi64x(signs64[(aux32[1] >> 21) & 127], signs64[(aux32[1] >> 14) & 127],
+-                                                   signs64[(aux32[1] >>  7) & 127], signs64[(aux32[1] >>  0) & 127]);
+-            const __m256i q8s_1 = _mm256_sign_epi8(q8_1, s2_1);
+-            const __m256i q8s_2 = _mm256_sign_epi8(q8_2, s2_2);
++            __m256i q8s_1, q8s_2;
++#if defined(__AVX512BITALG__) && defined(__AVX512VL__) && defined(__AVX512BW__) && defined(__BMI2__)
++            if (use_signmask) {
++                q8s_1 = _mm256_mask_sub_epi8(q8_1, iq3_xxs_signmask(aux32[0]), _mm256_setzero_si256(), q8_1);
++                q8s_2 = _mm256_mask_sub_epi8(q8_2, iq3_xxs_signmask(aux32[1]), _mm256_setzero_si256(), q8_2);
++            } else
++#endif
++            {
++                const __m256i s2_1 = _mm256_set_epi64x(signs64[(aux32[0] >> 21) & 127], signs64[(aux32[0] >> 14) & 127],
++                                                       signs64[(aux32[0] >>  7) & 127], signs64[(aux32[0] >>  0) & 127]);
++                const __m256i s2_2 = _mm256_set_epi64x(signs64[(aux32[1] >> 21) & 127], signs64[(aux32[1] >> 14) & 127],
++                                                       signs64[(aux32[1] >>  7) & 127], signs64[(aux32[1] >>  0) & 127]);
++                q8s_1 = _mm256_sign_epi8(q8_1, s2_1);
++                q8s_2 = _mm256_sign_epi8(q8_2, s2_2);
++            }
+             const __m256i dot1  = _mm256_maddubs_epi16(q2_1, q8s_1);
+             const __m256i dot2  = _mm256_maddubs_epi16(q2_2, q8s_2);
+             const uint16_t ls1 = aux32[0] >> 28;
+diff --git a/ggml/src/ggml-cpu/ggml-cpu.cpp b/ggml/src/ggml-cpu/ggml-cpu.cpp
+--- a/ggml/src/ggml-cpu/ggml-cpu.cpp
++++ b/ggml/src/ggml-cpu/ggml-cpu.cpp
+@@ -7,6 +7,7 @@
+ #include "amx/amx.h"
+ 
+ #include <cctype>
++#include <cstdlib>
+ #include <string>
+ #include <vector>
+ 
+@@ -36,6 +37,19 @@
+ #    include <sys/sysctl.h>
+ #    include <sys/types.h>
+ #endif
++
++// Sample once per CPU backend library. Called only by a compiled, eligible IQ3_XXS kernel.
++extern "C" bool ggml_cpu_iq3_xxs_signmask_enabled(void) {
++    static const bool enabled = [] {
++        const char * flag = std::getenv("LLAMA_EXPERIMENTAL_CPU_IQ3_SIGNMASK");
++        const bool on = flag && flag[0] == '1' && flag[1] == '\0';
++        if (on) {
++            GGML_LOG_INFO("experimental_cpu_iq3_signmask: entered x86 IQ3_XXS x Q8_K dot product\n");
++        }
++        return on;
++    }();
++    return enabled;
++}
+ 
+ // ggml-backend interface
+ 
+diff --git a/ggml/src/ggml-cpu/ggml-cpu-impl.h b/ggml/src/ggml-cpu/ggml-cpu-impl.h
+--- a/ggml/src/ggml-cpu/ggml-cpu-impl.h
++++ b/ggml/src/ggml-cpu/ggml-cpu-impl.h
+@@ -14,6 +14,8 @@
+ #ifdef __cplusplus
+ extern "C" {
+ #endif
++
++bool ggml_cpu_iq3_xxs_signmask_enabled(void);
+ 
+ struct ggml_compute_params {
+     // ith = thread index, nth = number of threads

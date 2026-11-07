@@ -1,0 +1,97 @@
+--- a/common/speculative.cpp
++++ b/common/speculative.cpp
+@@ -1664,19 +1664,11 @@
+ 
+         const int32_t n_tokens = batch_in.size();
+ 
+-        // remember the first and last batch index for each sequence
+-        std::fill(i_batch_beg.begin(), i_batch_beg.end(), -1);
+-        std::fill(i_batch_end.begin(), i_batch_end.end(), -1);
+-
+-        for (int k = 0; k < n_tokens; ++k) {
+-            for (llama_seq_id seq_id = 0; seq_id < (llama_seq_id) n_seq; ++seq_id) {
+-                if (batch_in.tokens[k].seq_id == seq_id) {
+-                    i_batch_end[seq_id] = k;
+-                    if (i_batch_beg[seq_id] < 0) {
+-                        i_batch_beg[seq_id] = k;
+-                    }
+-                }
+-            }
++        llama_exp::mtp_batch_rows batch_rows;
++        if (!batch_rows.index(batch_in.tokens, i_batch_beg, i_batch_end,
++                              bounded_verify_rows || rewind_guard_enabled)) {
++            SPC_ERR("%s", "MTP batch contains an invalid sequence id\n");
++            return false;
+         }
+ 
+         if (rewind_guard_enabled) {
+@@ -1698,10 +1690,8 @@
+ 
+             // pair each token with the tgt embedding shifted right by one position, and
+             // the first token of each sequence with the pending embedding from a previous run
+-            // assumes that the tokens in the batch are sequential for each sequence
+-            // i.e. we cannot have seq_id like this: [0, 0, 0, 1, 1, 0, 1, 1]
+-            //                                                       ^--- this is a problem
+-            // TODO:this is generally true, but would be nice to assert it
++            // The default path uses contiguous sequence groups. Opt-in P16
++            // profiles also resolve the previous row for interleaved batches.
+             const float * h_tgt = llama_get_embeddings_nextn(ctx_tgt);
+ 
+             for (int k = 0; k < n_tokens; ++k) {
+@@ -1716,7 +1706,7 @@
+ 
+                 const float * h_row = k == i_batch_beg[seq_id]
+                     ? pending_h[seq_id].data()
+-                    : h_tgt + (size_t) (k - 1) * n_embd;
++                    : h_tgt + (size_t) batch_rows.previous(k) * n_embd;
+ 
+                 batch.set_embd_state(idx, { h_row, 1, (size_t) n_embd });
+             }
+@@ -1768,13 +1758,14 @@
+                 continue;
+             }
+ 
+-            const int32_t n_rows = i_batch_end[seq_id] - i_batch_beg[seq_id] + 1;
++            const int32_t n_rows = batch_rows.count(seq_id, i_batch_beg[seq_id], i_batch_end[seq_id]);
+             const llama_exp::mtp_verify_window window((size_t) n_rows, params.n_max, bounded_verify_rows);
+             verify_h_rows[seq_id] = n_rows;
+             verify_h[seq_id].resize(window.retained_rows * (size_t) n_embd);
+ 
+             for (size_t i = 0; i < window.retained_rows; ++i) {
+-                const float * h = llama_get_embeddings_nextn_ith(ctx_tgt, i_batch_beg[seq_id] + (int32_t) i);
++                const int32_t row = batch_rows.at(seq_id, i_batch_beg[seq_id], (int32_t) i);
++                const float * h = llama_get_embeddings_nextn_ith(ctx_tgt, row);
+                 std::memcpy(verify_h[seq_id].data() + i * n_embd, h, row_bytes);
+             }
+ 
+@@ -1793,6 +1784,12 @@
+     }
+ 
+     void draft(common_speculative_draft_params_vec & dparams) override {
++        // The server reserves n_max + 1 target output rows. A zero cap
++        // permits the sampled token only and must not emit a draft.
++        if (params.n_max == 0) {
++            return;
++        }
++
+         auto & ctx_dft = params.ctx_dft;
+ 
+         batch.clear();
+@@ -1966,14 +1963,14 @@
+             return;
+         }
+ 
++        if (rewind_guard_enabled) {
++            rewind_guards[seq_id].validate_accept(n_accepted);
++        }
+         const int32_t n_rows = verify_h_rows[seq_id];
+         if (n_rows <= 0) {
+             return;
+         }
+ 
+-        if (rewind_guard_enabled) {
+-            rewind_guards[seq_id].validate_accept(n_accepted);
+-        }
+         const llama_exp::mtp_verify_window window((size_t) n_rows, params.n_max, bounded_verify_rows);
+         const size_t i_h = window.accepted_row(n_accepted);
+         const size_t row_bytes = (size_t) n_embd * sizeof(float);

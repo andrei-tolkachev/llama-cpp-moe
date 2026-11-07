@@ -1,0 +1,57 @@
+diff --git a/src/llama-impl.cpp b/src/llama-impl.cpp
+--- a/src/llama-impl.cpp
++++ b/src/llama-impl.cpp
+@@ -9,6 +9,7 @@
+ #include <cinttypes>
+ #include <climits>
+ #include <cstdarg>
++#include <cstdlib>
+ #include <cstring>
+ #include <vector>
+ 
+@@ -29,6 +30,45 @@
+     const size_t row_bytes = ggml_row_size(tensor->type, tensor->ne[0]);
+     const auto * base = (const char *) tensor->data;
+ 
++    // Optional, bounded Engram/PLE prefetch planner. The ordinary path already
++    // merges page ranges; sorting compact row IDs first avoids repeatedly
++    // materializing and sorting duplicate 16-byte address/length records.
++    // No tensor data or row lookup order changes; only prefetch advice is grouped.
++    static const bool prefetch_unique = [] {
++        const char * value = std::getenv("LLAMA_EXPERIMENTAL_PREFETCH_UNIQUE");
++        return value && value[0] == '1' && value[1] == '\0';
++    }();
++    if (prefetch_unique && n_rows >= 128 && n_rows <= 256*1024 && tensor->nb[1] == row_bytes) {
++        std::vector<int32_t> ordered(rows, rows + n_rows);
++        for (int32_t row : ordered) {
++            GGML_ASSERT(row >= 0 && row < tensor->ne[1]);
++        }
++        std::sort(ordered.begin(), ordered.end());
++        ordered.erase(std::unique(ordered.begin(), ordered.end()), ordered.end());
++
++        std::vector<llama_memory_range> unique_ranges;
++        unique_ranges.reserve(ordered.size());
++        int32_t first = ordered.front();
++        int32_t last  = first;
++        auto add_range = [&] {
++            unique_ranges.push_back({
++                base + (size_t) first*tensor->nb[1],
++                ((size_t) last - (size_t) first)*tensor->nb[1] + row_bytes,
++            });
++        };
++        for (size_t i = 1; i < ordered.size(); ++i) {
++            if ((int64_t) ordered[i] == (int64_t) last + 1) {
++                last = ordered[i];
++            } else {
++                add_range();
++                first = last = ordered[i];
++            }
++        }
++        add_range();
++        llama_prefetch(std::move(unique_ranges));
++        return;
++    }
++
+     std::vector<llama_memory_range> mr;
+     mr.reserve(n_rows);
+     for (size_t i = 0; i < n_rows; ++i) {

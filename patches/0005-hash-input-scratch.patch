@@ -1,0 +1,166 @@
+diff --git a/src/models/deepseek41.cpp b/src/models/deepseek41.cpp
+index 95c8a36d537098b72a87785fcf9be859f9dde16d..578ecfae1f3fb51158972b77aa962a3704114c10 100644
+--- a/src/models/deepseek41.cpp
++++ b/src/models/deepseek41.cpp
+@@ -278,10 +278,15 @@ void llama_model_deepseek41::engram_hash(int e, const llama_ubatch & ubatch, con
+ }
+ 
+ // cand_pin: +1e30 on the block with the newest compressed row of each query, so a partly filled block is always kept; the reference uses +inf, but a finite pin keeps fully masked blocks at -inf instead of NaN
++static bool dsv41_hash_scratch_enabled() {
++    const char * value = std::getenv("LLAMA_EXPERIMENTAL_HASH_SCRATCH");
++    return value && value[0] == '1' && value[1] == '\0';
++}
++
+ class llm_graph_input_dsv41 : public llm_graph_input_i {
+ public:
+     llm_graph_input_dsv41(const llama_model_deepseek41 & model, const llama_kv_cache_dsv4_context * mctx) :
+-        model(model), mctx(mctx) {}
++        model(model), mctx(mctx), hash_scratch(dsv41_hash_scratch_enabled()) {}
+ 
+     void set_input(const llama_ubatch * ubatch) override;
+     bool can_reuse(const llm_graph_params & params) override;
+@@ -295,6 +300,12 @@ public:
+     const llama_kv_cache_dsv4_context * mctx;
+ 
+ private:
++    static constexpr size_t hash_scratch_max_values = 256*1024;
++    bool hash_scratch = false;
++    std::vector<llama_token> prev_scratch;
++    std::vector<std::vector<int32_t>> ids_scratch;
++    std::vector<int32_t> all_scratch;
++
+     const llama_kv_cache_dsv4_context::comp_plan & cand_plan(const llama_ubatch & ubatch) const {
+         return cand_csa ? mctx->get_csa_plan(ubatch) : mctx->get_hca_plan(ubatch);
+     }
+@@ -303,16 +314,32 @@ private:
+ void llm_graph_input_dsv41::set_input(const llama_ubatch * ubatch) {
+     if (!engram_ids.empty()) {
+         // a token shared by several sequences has the same history in each, so its first sequence resolves it
+-        std::vector<llama_token> prev;
++        const size_t n_heads = model.hparams.ple_n_heads;
++        const size_t n_prev = model.hparams.ple_ngram_size - 1;
++        const bool use_scratch = hash_scratch && n_heads > 0 && n_prev > 0 &&
++            (size_t) ubatch->n_tokens <= hash_scratch_max_values/n_heads/engram_ids.size() &&
++            (size_t) ubatch->n_tokens <= hash_scratch_max_values/n_prev;
++        std::vector<llama_token> prev_local;
++        std::vector<llama_token> & prev = use_scratch ? prev_scratch : prev_local;
+         mctx->get_raw()->get_prev_tokens(*ubatch, model.hparams.ple_ngram_size - 1, prev);
+         // hash all Engram layers first so a lazily read table gets one batched readahead before the first gather
+-        std::vector<std::vector<int32_t>> ids(engram_ids.size());
+-        std::vector<int32_t> all;
++        std::vector<std::vector<int32_t>> ids_local;
++        std::vector<std::vector<int32_t>> & ids = use_scratch ? ids_scratch : ids_local;
++        ids.resize(engram_ids.size());
++        std::vector<int32_t> all_local;
++        std::vector<int32_t> & all = use_scratch ? all_scratch : all_local;
++        all.clear();
++        const bool prefetch = model.can_prefetch.count(model.per_layer_tok_embd);
++        if (use_scratch && prefetch) {
++            all.reserve((size_t) ubatch->n_tokens*n_heads*engram_ids.size());
++        }
+         for (size_t e = 0; e < engram_ids.size(); ++e) {
+             model.engram_hash((int) e, *ubatch, prev, ids[e]);
+-            all.insert(all.end(), ids[e].begin(), ids[e].end());
++            if (!use_scratch || prefetch) {
++                all.insert(all.end(), ids[e].begin(), ids[e].end());
++            }
+         }
+-        if (model.can_prefetch.count(model.per_layer_tok_embd)) {
++        if (prefetch) {
+             llama_prefetch_rows(model.per_layer_tok_embd, all.data(), all.size());
+         }
+         for (size_t e = 0; e < engram_ids.size(); ++e) {
+diff --git a/src/models/qwen4exp.cpp b/src/models/qwen4exp.cpp
+index 5de67aa50f5447446420214e9f36f3041462d678..8092fed488cd012af8757049f269d1b96aee605e 100644
+--- a/src/models/qwen4exp.cpp
++++ b/src/models/qwen4exp.cpp
+@@ -5,6 +5,7 @@
+ 
+ #include <algorithm>
+ #include <cinttypes>
++#include <cstdlib>
+ 
+ // bad metadata must be catchable: GGML_ASSERT aborts the whole process
+ static void qwen4exp_require_nonzero(const llama_model_loader & ml, llm_kv kid, uint32_t value) {
+@@ -1296,10 +1297,31 @@ ggml_tensor * llama_model_qwen4exp::graph::build_layer_ffn(ggml_tensor * cur, co
+ //   mixed_n = (t[p]*m[0]) ^ ... ^ (t[p-n+1]*m[n-1]);  row = mixed_n % vocab[h] + offset[h]
+ // The hash runs host-side because ggml has no int64 and no xor. EOS resets the window.
+ 
++// Exact integer prefix reuse; this does not change PLE rows or table precision.
++static bool qwen4exp_hash_scratch_enabled() {
++    const char * value = std::getenv("LLAMA_EXPERIMENTAL_HASH_SCRATCH");
++    return value && value[0] == '1' && value[1] == '\0';
++}
++
++static void qwen4exp_hash_rows_reuse(
++        const llama_hparams & hparams, const int64_t * ctx, int32_t * rows) {
++    uint64_t mixed = (uint64_t) ctx[0] * hparams.ple_layer_multipliers[0];
++    for (uint32_t n = 2; n <= hparams.ple_ngram_size; ++n) {
++        mixed ^= (uint64_t) ctx[n - 1] * hparams.ple_layer_multipliers[n - 1];
++        const uint32_t base = (n - 2) * hparams.ple_heads_per_ngram;
++        for (uint32_t g = 0; g < hparams.ple_heads_per_ngram; ++g) {
++            const uint32_t h_i = base + g;
++            rows[h_i] = (int32_t) (mixed % hparams.ple_head_vocab_sizes[h_i] +
++                                   hparams.ple_head_offsets[h_i]);
++        }
++    }
++}
++
+ class llm_graph_input_qwen4exp_ple : public llm_graph_input_i {
+ public:
+     llm_graph_input_qwen4exp_ple(const llama_model & model,
+-                        const llama_kv_cache_context * mctx) : model(model), mctx(mctx) {}
++                        const llama_kv_cache_context * mctx) : model(model), mctx(mctx),
++                        hash_scratch(qwen4exp_hash_scratch_enabled()) {}
+     virtual ~llm_graph_input_qwen4exp_ple() = default;
+ 
+     void set_input(const llama_ubatch * ubatch) override;
+@@ -1318,6 +1340,13 @@ public:
+ 
+     // scratch, reused across set_input() calls
+     std::vector<llama_token> prev;
++
++    // Per graph-input scratch, never shared between contexts. Large ubatches
++    // use the original temporary-buffer path instead of retaining large arrays.
++    static constexpr size_t hash_scratch_max_values = 256*1024;
++    bool hash_scratch = false;
++    std::vector<int32_t> idx_scratch;
++    std::vector<int64_t> ctx_scratch;
+ };
+ 
+ void llm_graph_input_qwen4exp_ple::set_input(const llama_ubatch * ubatch) {
+@@ -1341,7 +1370,11 @@ void llm_graph_input_qwen4exp_ple::set_input(const llama_ubatch * ubatch) {
+     const int64_t eos      = hparams.ple_eos_token_id;
+     const int64_t n_prev   = n_gram - 1;
+ 
+-    std::vector<int32_t> idx(n_heads * n_tokens);
++    const bool use_scratch = hash_scratch && n_heads > 0 &&
++        (size_t) n_tokens <= hash_scratch_max_values/(size_t) n_heads;
++    std::vector<int32_t> idx_local;
++    std::vector<int32_t> & idx = use_scratch ? idx_scratch : idx_local;
++    idx.resize(n_heads * n_tokens);
+ 
+     GGML_ASSERT(mctx != nullptr);
+ 
+@@ -1357,7 +1390,9 @@ void llm_graph_input_qwen4exp_ple::set_input(const llama_ubatch * ubatch) {
+         // an EOS in the window resets everything at or before it
+         // a missing predecessor (before the sequence start, or no cached cell) reads as EOS
+         // the EOS of the token itself does not cut its own context, as in the reference
+-        std::vector<int64_t> ctx(n_gram);
++        std::vector<int64_t> ctx_local;
++        std::vector<int64_t> & ctx = use_scratch ? ctx_scratch : ctx_local;
++        ctx.resize(n_gram);
+         ctx[0] = tok_of(i);
+         bool cut = false;
+         for (int64_t s = 1; s < n_gram; ++s) {
+@@ -1367,6 +1402,10 @@ void llm_graph_input_qwen4exp_ple::set_input(const llama_ubatch * ubatch) {
+             ctx[s] = cut ? eos : t;
+         }
+ 
++        if (use_scratch) {
++            qwen4exp_hash_rows_reuse(hparams, ctx.data(), idx.data() + i*n_heads);
++            continue;
++        }
+         for (int64_t n = 2; n <= n_gram; ++n) {
+             uint64_t mixed = (uint64_t) ctx[0] * hparams.ple_layer_multipliers[0];
+             for (int64_t j = 1; j < n; ++j) {

@@ -1,0 +1,23 @@
+--- a/common/speculative.cpp
++++ b/common/speculative.cpp
+@@ -1665,8 +1665,7 @@
+         const int32_t n_tokens = batch_in.size();
+ 
+         llama_exp::mtp_batch_rows batch_rows;
+-        if (!batch_rows.index(batch_in.tokens, i_batch_beg, i_batch_end,
+-                              bounded_verify_rows || rewind_guard_enabled)) {
++        if (!batch_rows.index(batch_in.tokens, i_batch_beg, i_batch_end)) {
+             SPC_ERR("%s", "MTP batch contains an invalid sequence id\n");
+             return false;
+         }
+@@ -1690,8 +1689,8 @@
+ 
+             // pair each token with the tgt embedding shifted right by one position, and
+             // the first token of each sequence with the pending embedding from a previous run
+-            // The default path uses contiguous sequence groups. Opt-in P16
+-            // profiles also resolve the previous row for interleaved batches.
++            // Each predecessor must belong to this sequence, including
++            // interleaved batches when verification optimizations are off.
+             const float * h_tgt = llama_get_embeddings_nextn(ctx_tgt);
+ 
+             for (int k = 0; k < n_tokens; ++k) {

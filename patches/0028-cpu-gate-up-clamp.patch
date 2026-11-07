@@ -1,0 +1,63 @@
+--- a/src/llama-graph.cpp
++++ b/src/llama-graph.cpp
+@@ -1,4 +1,7 @@
+ #include "llama-graph.h"
++#ifdef GGML_USE_CPU
++#include "llama-experimental/cpu_gate_up.hpp"
++#endif
+ 
+ #include "llama-impl.h"
+ #include "llama-model.h"
+@@ -18,12 +21,26 @@
+ #include "llama-memory-recurrent.h"
+ 
+ #include <cassert>
++#include <cstdlib>
+ #include <cmath>
+ #include <cstring>
+ #include <numeric>
+ #include <sstream>
+ #include <string>
+ #include <unordered_set>
++
++#ifdef GGML_USE_CPU
++class llm_graph_input_cpu_gate_up final : public llm_graph_input_i {
++public:
++    int il;
++    float limit;
++    llm_graph_input_cpu_gate_up(int il, float limit) : il(il), limit(limit) {}
++    void set_input(const llama_ubatch *) override {}
++    bool can_reuse(const llm_graph_params & params) override {
++        return params.hparams.swiglu_clamp_exp[il] == limit;
++    }
++};
++#endif
+ 
+ // dedup helpers
+ 
+@@ -2506,7 +2523,24 @@
+         if (auto * cpu_ids = cpu_route) {
+             ggml_build_forward_expand(gf, experts);
+             const int first_cpu_node = ggml_graph_n_nodes(gf);
+-            auto * cpu_experts = expert_lane(cpu_input, cpu_ids, nullptr);
++            ggml_tensor * cpu_experts = nullptr;
++#ifdef GGML_USE_CPU
++            const char * fused_env = std::getenv("LLAMA_EXPERIMENTAL_CPU_FUSED_GATE_UP");
++            const bool pre_clamp = arch == LLM_ARCH_MAPLE || arch == LLM_ARCH_DEEPSEEK4 || arch == LLM_ARCH_DEEPSEEK41 ||
++                arch == LLM_ARCH_GLM5_NEXT || (arch == LLM_ARCH_DFLASH && hparams.dsv4_hc_mult > 0) || arch == LLM_ARCH_HY_V4;
++            if (fused_env && fused_env[0] == '1' && fused_env[1] == '\0' && pre_clamp &&
++                type_op == LLM_FFN_SILU && !gate_up_exps && il >= 0) {
++                auto config = std::make_unique<llm_graph_input_cpu_gate_up>(il, hparams.swiglu_clamp_exp[il]);
++                auto * hidden = llama_exp::build_cpu_gate_up_clamp(ctx0, cpu_input, cpu_ids, gate_exps, up_exps, &config->limit);
++                if (hidden) {
++                    res->add_input(std::move(config));
++                    ggml_format_name(hidden, "cpu_moe.fused_gate_up-%d", il);
++                    cpu_experts = ggml_mul_mat_id(ctx0, down_exps, hidden, cpu_ids);
++                    if (il == 0) LLAMA_LOG_INFO("graph: experimental CPU fused gate/up enabled for decode\n");
++                }
++            }
++#endif
++            if (!cpu_experts) cpu_experts = expert_lane(cpu_input, cpu_ids, nullptr);
+             ggml_build_forward_expand(gf, cpu_experts);
+             for (int ni = first_cpu_node; ni < ggml_graph_n_nodes(gf); ++ni) {
+                 ggml_backend_sched_set_tensor_backend(sched, ggml_graph_node(gf, ni), moe_cache->cpu_backend());

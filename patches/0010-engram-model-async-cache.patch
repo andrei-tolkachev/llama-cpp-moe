@@ -1,0 +1,83 @@
+diff --git a/src/models/models.h b/src/models/models.h
+--- a/src/models/models.h
++++ b/src/models/models.h
+@@ -8,6 +8,10 @@
+ #include <cmath>
+ #include <map>
++#include <memory>
++#include <mutex>
+ 
+ class llama_memory_hybrid_idx_context;
+ 
++namespace llama_exp { class engram_model_cache; struct mapped_rows; }
++
+ // ref: https://github.com/ggml-org/llama.cpp/pull/28068
+@@ -1509,4 +1513,10 @@
+ struct llama_model_deepseek41 : public llama_model_deepseek4 {
+     llama_model_deepseek41(const struct llama_model_params & params) : llama_model_deepseek4(params) {}
++    ~llama_model_deepseek41() override;
++
++    std::shared_ptr<llama_exp::engram_model_cache> engram_cache_for(
++            llama_exp::mapped_rows source, uint64_t rows) const;
++    mutable std::mutex experimental_engram_mutex;
++    mutable std::shared_ptr<llama_exp::engram_model_cache> experimental_engram_cache;
+     void load_arch_hparams(llama_model_loader & ml) override;
+     void load_arch_tensors(llama_model_loader & ml) override;
+diff --git a/src/models/deepseek41.cpp b/src/models/deepseek41.cpp
+--- a/src/models/deepseek41.cpp
++++ b/src/models/deepseek41.cpp
+@@ -20,4 +20,28 @@
+     return !v || atoi(v) != 0;
+ }
+ 
++// P13: the DeepSeek model owns the mmap-backed cache, never a graph input.
++llama_model_deepseek41::~llama_model_deepseek41() {
++    std::lock_guard<std::mutex> guard(experimental_engram_mutex);
++    if (experimental_engram_cache) {
++        experimental_engram_cache->close(); // drain worker before model buffers unmap
++        experimental_engram_cache.reset();
++    }
++}
++
++std::shared_ptr<llama_exp::engram_model_cache> llama_model_deepseek41::engram_cache_for(
++        llama_exp::mapped_rows source, uint64_t rows) const {
++    std::lock_guard<std::mutex> guard(experimental_engram_mutex);
++    if (!experimental_engram_cache) {
++        const char * flag = std::getenv("LLAMA_EXPERIMENTAL_ENGRAM_ASYNC");
++        const bool async = flag && flag[0] == '1' && flag[1] == '\0';
++        experimental_engram_cache = std::make_shared<llama_exp::engram_model_cache>(
++                source, rows, llama_exp::engram_model_cache::default_data_budget,
++                async ? llama_exp::engram_model_cache::async_queue_limit : 0);
++    } else if (!experimental_engram_cache->matches(source, rows)) {
++        throw std::runtime_error("DeepSeek-V4.1 Engram cache source changed after initialization");
++    }
++    return experimental_engram_cache;
++}
++
+ void llama_model_deepseek41::load_arch_hparams(llama_model_loader & ml) {
+@@ -343,5 +368,11 @@
+         if (prefetch) {
+             llama_prefetch_rows(model.per_layer_tok_embd, all.data(), all.size());
+         }
++        if (engram_stage) {
++            // All exact hashes are known; enqueue before staging any layer.
++            for (const auto & layer_ids : ids) {
++                engram_stage->prefetch(layer_ids.data(), layer_ids.size());
++            }
++        }
+         for (size_t e = 0; e < engram_ids.size(); ++e) {
+             if (engram_stage) {
+@@ -847,5 +879,11 @@
+             llama_exp::mapped_rows source(engram_table->data, table_bytes, engram_table->nb[1], row_bytes);
+-            inp41->engram_stage = std::make_unique<llama_exp::engram_graph_stage>(source,
+-                    (uint64_t) engram_table->ne[1]);
++            const uint64_t rows = (uint64_t) engram_table->ne[1];
++            const char * shared = std::getenv("LLAMA_EXPERIMENTAL_ENGRAM_MODEL_CACHE");
++            if (shared && shared[0] == '1' && shared[1] == '\0') {
++                inp41->engram_stage = std::make_unique<llama_exp::engram_graph_stage>(
++                        model.engram_cache_for(source, rows));
++            } else {
++                inp41->engram_stage = std::make_unique<llama_exp::engram_graph_stage>(source, rows);
++            }
+         }
+     }

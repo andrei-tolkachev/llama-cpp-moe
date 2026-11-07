@@ -1,0 +1,279 @@
+diff --git a/src/llama-moe-cache.cpp b/src/llama-moe-cache.cpp
+--- a/src/llama-moe-cache.cpp
++++ b/src/llama-moe-cache.cpp
+@@ -8,6 +8,7 @@
+ 
+ #include <algorithm>
+ #include <cstdlib>
++#include <cstring>
+ #include <stdexcept>
+ #include <unordered_map>
+ #include <vector>
+@@ -225,6 +226,130 @@
+     }
+ };
+ 
++// An opt-in limit, in whole MiB. Invalid input disables the experiment rather
++// than silently accepting a partial decimal or an unbounded allocation.
++static size_t llama_moe_cache_staging_limit(const char * value, bool & invalid) {
++    invalid = false;
++    if (value == nullptr || value[0] == '\0') {
++        return 0;
++    }
++    size_t mib = 0;
++    for (const char * p = value; *p != '\0'; ++p) {
++        if (*p < '0' || *p > '9') {
++            invalid = true;
++            return 0;
++        }
++        mib = mib*10 + size_t(*p - '0');
++        if (mib > 64) {
++            invalid = true;
++            return 0;
++        }
++    }
++    return mib*1024*1024;
++}
++
++static ggml_backend_buffer_ptr llama_moe_cache_alloc_staging(ggml_backend_t backend, size_t limit, bool no_alloc) {
++    if (no_alloc || limit == 0) {
++        return nullptr;
++    }
++    ggml_backend_dev_t dev = ggml_backend_get_device(backend);
++    ggml_backend_dev_props props = {};
++    ggml_backend_dev_get_props(dev, &props);
++    if (!props.caps.async || !props.caps.host_buffer) {
++        return nullptr;
++    }
++    ggml_backend_buffer_type_t buft = ggml_backend_dev_host_buffer_type(dev);
++    if (buft == nullptr || !ggml_backend_buft_is_host(buft) || ggml_backend_buft_get_max_size(buft) < limit) {
++        return nullptr;
++    }
++    ggml_backend_buffer_ptr buffer(ggml_backend_buft_alloc_buffer(buft, limit));
++    // CUDA_Host can fall back to a pageable CPU buffer. A host pointer alone is
++    // not evidence of pinning: retain only the device's advertised host type.
++    if (!buffer || ggml_backend_buffer_get_type(buffer.get()) != buft ||
++            !ggml_backend_buffer_is_host(buffer.get()) ||
++            ggml_backend_buffer_get_size(buffer.get()) < limit ||
++            ggml_backend_buffer_get_size(buffer.get()) > size_t(64)*1024*1024 ||
++            ggml_backend_buffer_get_base(buffer.get()) == nullptr) {
++        return nullptr;
++    }
++    return buffer;
++}
++
++struct moe_cache_upload_stats {
++    size_t bytes        = 0;
++    size_t staged_bytes = 0;
++    size_t calls        = 0;
++    size_t calls_saved  = 0;
++};
++
++// Preserve the SLRU fill order and every destination slot. Gather only a run
++// of adjacent destination slots when its source experts are not adjacent.
++// The cursor is shared by ALL banks in one cache update: queued async readers
++// must never observe a range overwritten by a later bank in that update.
++template <typename Upload>
++static moe_cache_upload_stats llama_moe_cache_upload_experts(
++        const uint8_t * source, size_t expert_size, const std::vector<moe_cache_slru::fill> & fills,
++        uint8_t * staging, size_t capacity, size_t & used, Upload upload) {
++    GGML_ASSERT(expert_size > 0 && used <= capacity);
++    moe_cache_upload_stats stats;
++    for (size_t i = 0; i < fills.size();) {
++        size_t direct_n = 1;
++        while (i + direct_n < fills.size() &&
++                fills[i + direct_n].expert == fills[i].expert + (int32_t) direct_n &&
++                fills[i + direct_n].slot   == fills[i].slot   + (int32_t) direct_n) {
++            direct_n++;
++        }
++
++        size_t packed_n = direct_n;
++        // Division bounds the multiplication and makes exhaustion a direct
++        // upload fallback. There is no wrap, wait, growth or hot allocation.
++        const size_t fits = staging != nullptr ? (capacity - used)/expert_size : 0;
++        while (packed_n < fits && i + packed_n < fills.size() &&
++                fills[i + packed_n].slot == fills[i].slot + (int32_t) packed_n) {
++            // Do not split an existing direct run at the capacity boundary:
++            // its remainder would need another upload and erase the saving.
++            size_t n = 1;
++            while (i + packed_n + n < fills.size() &&
++                    fills[i + packed_n + n].expert == fills[i + packed_n].expert + (int32_t) n &&
++                    fills[i + packed_n + n].slot   == fills[i + packed_n].slot   + (int32_t) n) {
++                n++;
++            }
++            if (n > fits - packed_n) {
++                break;
++            }
++            packed_n += n;
++        }
++        if (packed_n > direct_n) {
++            size_t fragments = 0;
++            for (size_t j = 0; j < packed_n;) {
++                size_t n = 1;
++                while (j + n < packed_n && fills[i + j + n].expert == fills[i + j].expert + (int32_t) n) {
++                    n++;
++                }
++                std::memcpy(staging + used + j*expert_size,
++                            source + size_t(fills[i + j].expert)*expert_size, n*expert_size);
++                fragments++;
++                j += n;
++            }
++            const size_t bytes = packed_n*expert_size;
++            upload(staging + used, size_t(fills[i].slot)*expert_size, bytes);
++            used += bytes;
++            stats.bytes        += bytes;
++            stats.staged_bytes += bytes;
++            stats.calls++;
++            stats.calls_saved += fragments - 1;
++            i += packed_n;
++        } else {
++            const size_t bytes = direct_n*expert_size;
++            upload(source + size_t(fills[i].expert)*expert_size, size_t(fills[i].slot)*expert_size, bytes);
++            stats.bytes += bytes;
++            stats.calls++;
++            i += direct_n;
++        }
++    }
++    return stats;
++}
++
+ // gate, up, down or gate_up, down
+ static std::vector<ggml_tensor *> llama_moe_cache_layer_experts(const llama_layer & layer) {
+     std::vector<ggml_tensor *> res;
+@@ -268,6 +393,12 @@
+         ggml_context_ptr ctx;
+         ggml_backend_buffer_ptr buf;
+         size_t buf_size = 0;
++
++        // Owned per backend, not per group: another GPU must not reuse memory
++        // whose H2D reads are still in flight on this backend's stream.
++        ggml_backend_buffer_ptr upload_staging;
++        uint8_t * upload_staging_base = nullptr;
++        size_t upload_staging_capacity = 0;
+     };
+ 
+     // layers of the same device with the same expert tensor layout share the banks and the LRU of a group
+@@ -313,6 +444,14 @@
+         int64_t id_readback_sync_host_us = 0;
+         int64_t slru_plan_host_us = 0;
+         int64_t upload_enqueue_host_us = 0;
++        bool staging_env_invalid = false;
++        size_t staging_requested_bytes = 0;
++        size_t staging_allocated_bytes = 0;
++        size_t staging_backends_enabled = 0;
++        size_t staging_fallback_backends = 0;
++        size_t staging_upload_calls = 0;
++        size_t staging_upload_calls_saved = 0;
++        size_t staging_packed_bytes = 0;
+     } trace;
+ 
+     static constexpr int64_t max_batch = 32;
+@@ -572,7 +711,38 @@
+                 }
+             }
+         }
++        init_upload_staging(no_alloc);
+         log_trace_coverage();
++    }
++
++    void init_upload_staging(bool no_alloc) {
++        bool invalid = false;
++        const size_t limit = llama_moe_cache_staging_limit(std::getenv("LLAMA_EXPERIMENTAL_MOE_STAGING_MIB"), invalid);
++        trace.staging_env_invalid = invalid;
++        if (limit == 0) {
++            return;
++        }
++        for (device & d : devices) {
++            if (d.buf_size == 0) {
++                continue;
++            }
++            if (trace.enabled) {
++                trace.staging_requested_bytes += limit;
++            }
++            d.upload_staging = llama_moe_cache_alloc_staging(d.backend, limit, no_alloc);
++            if (!d.upload_staging) {
++                if (trace.enabled && !no_alloc) {
++                    trace.staging_fallback_backends++;
++                }
++                continue;
++            }
++            d.upload_staging_base = (uint8_t *) ggml_backend_buffer_get_base(d.upload_staging.get());
++            d.upload_staging_capacity = limit;
++            if (trace.enabled) {
++                trace.staging_backends_enabled++;
++                trace.staging_allocated_bytes += ggml_backend_buffer_get_size(d.upload_staging.get());
++            }
++        }
+     }
+ 
+     ggml_backend_t backend(int32_t il) const {
+@@ -580,6 +750,10 @@
+     }
+ 
+     ~impl() {
++        // The owning llama_context synchronizes its scheduler/backends before
++        // destroying members. Like the cache banks, staging must outlive all
++        // queued copies. Do not dereference backend pointers during teardown:
++        // the owner's backend objects may already have been destroyed here.
+         log_stats();
+         log_trace_summary();
+     }
+@@ -685,12 +859,33 @@
+         }
+         const int64_t trace_plan_end = trace.enabled ? ggml_time_us() : 0;
+ 
++        // The EXISTING readback synchronize above completes earlier uploads on
++        // this backend before its staging cursor is reset. Within this update,
++        // every bank gets disjoint ranges; another backend owns another buffer.
++        device & upload_device = devices[g.id];
++        size_t staging_used = 0;
++
+         // upload the missing experts, consecutive experts going to consecutive slots are uploaded together
+         size_t bytes = 0;
+         for (size_t ip = 0; ip < l.experts.size(); ++ip) {
+             const ggml_tensor * w    = l.experts[ip];
+             ggml_tensor       * bank = g.banks[ip];
+             const size_t expert_size = w->nb[2];
++            if (upload_device.upload_staging) {
++                const auto uploaded = llama_moe_cache_upload_experts(
++                    (const uint8_t *) w->data, expert_size, fills,
++                    upload_device.upload_staging_base, upload_device.upload_staging_capacity, staging_used,
++                    [&](const uint8_t * data, size_t offset, size_t size) {
++                        ggml_backend_tensor_set_async(backend, bank, data, offset, size);
++                    });
++                bytes += uploaded.bytes;
++                if (trace.enabled) {
++                    trace.staging_upload_calls += uploaded.calls;
++                    trace.staging_upload_calls_saved += uploaded.calls_saved;
++                    trace.staging_packed_bytes += uploaded.staged_bytes;
++                }
++                continue;
++            }
+             for (size_t i = 0; i < fills.size();) {
+                 size_t n = 1;
+                 while (i + n < fills.size() && fills[i + n].expert == fills[i].expert + (int32_t) n && fills[i + n].slot == fills[i].slot + (int32_t) n) {
+@@ -742,6 +937,14 @@
+         if (!trace.enabled) {
+             return;
+         }
++        LLAMA_LOG_INFO("llama_moe_cache: experimental_staging summary: cache=%p no_alloc=%d "
++                       "invalid_env=%d requested_bytes=%zu allocated_host_bytes=%zu enabled_backends=%zu "
++                       "fallback_backends=%zu upload_calls=%zu upload_calls_saved=%zu staged_bytes=%zu "
++                       "extra_host_copy_bytes=%zu traffic_bytes_reduced=no\n",
++            static_cast<const void *>(this), int(trace.no_alloc), int(trace.staging_env_invalid),
++            trace.staging_requested_bytes, trace.staging_allocated_bytes, trace.staging_backends_enabled,
++            trace.staging_fallback_backends, trace.staging_upload_calls, trace.staging_upload_calls_saved,
++            trace.staging_packed_bytes, trace.staging_packed_bytes);
+         // Existing stats count distinct expert IDs per layer update, not tokens or tensor copies.
+         const size_t hits   = stats_small.hits   + stats_large.hits;
+         const size_t misses = stats_small.misses + stats_large.misses;
+@@ -811,6 +1014,9 @@
+         if (d.buf) {
+             res[ggml_backend_buffer_get_type(d.buf.get())] += d.buf_size;
+         }
++        if (d.upload_staging) {
++            res[ggml_backend_buffer_get_type(d.upload_staging.get())] += ggml_backend_buffer_get_size(d.upload_staging.get());
++        }
+     }
+     if (pimpl->buf_host) {
+         res[ggml_backend_buffer_get_type(pimpl->buf_host.get())] += pimpl->buf_host_size;

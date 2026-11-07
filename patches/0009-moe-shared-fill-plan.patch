@@ -1,0 +1,85 @@
+diff --git a/src/llama-moe-cache.cpp b/src/llama-moe-cache.cpp
+index a524aaf..2c4bc21 100644
+--- a/src/llama-moe-cache.cpp
++++ b/src/llama-moe-cache.cpp
+@@ -4,12 +4,14 @@
+ #include "llama-memory.h"
+ #include "llama-model.h"
+ #include "llama-experimental/upload_pipeline.hpp"
++#include "llama-experimental/upload_plan.hpp"
+ 
+ #include "ggml-cpp.h"
+ 
+ #include <algorithm>
+ #include <cstdlib>
+ #include <cstring>
++#include <optional>
+ #include <stdexcept>
+ #include <unordered_map>
+ #include <vector>
+@@ -351,6 +353,21 @@ static moe_cache_upload_stats llama_moe_cache_upload_experts(
+     return stats;
+ }
+ 
++// P12: prefer a single immutable group layout shared by all bank widths.
++// The P04 implementation remains byte-for-byte the fallback when disabled.
++template <typename Upload>
++static moe_cache_upload_stats llama_moe_cache_upload_experts_planned(
++        const uint8_t * source, size_t expert_size, const std::vector<moe_cache_slru::fill> & fills,
++        uint8_t * staging, size_t capacity, size_t & used,
++        const llama_exp::moe_fill_plan * shared_plan, Upload upload) {
++    if (shared_plan == nullptr) {
++        return llama_moe_cache_upload_experts(source, expert_size, fills,
++                                             staging, capacity, used, upload);
++    }
++    const auto m = shared_plan->upload(source, expert_size, staging, capacity, used, upload);
++    return {m.bytes, m.staged_bytes, m.calls, m.calls_saved};
++}
++
+ // gate, up, down or gate_up, down
+ static std::vector<ggml_tensor *> llama_moe_cache_layer_experts(const llama_layer & layer) {
+     std::vector<ggml_tensor *> res;
+@@ -870,6 +887,19 @@ struct llama_moe_cache::impl {
+         device & upload_device = devices[g.id];
+         size_t staging_used = 0;
+ 
++        // P12 is optional independently from P09/P10. The plan borrows no
++        // tensor or staging pointers; it is immutable throughout execute(),
++        // whose producer MUST finish before the plan goes out of scope.
++        std::optional<llama_exp::moe_fill_plan> shared_plan;
++        if (llama_exp::moe_fill_plan::enabled() && upload_device.upload_staging && !fills.empty()) {
++            try {
++                shared_plan.emplace(fills);
++            } catch (const std::bad_alloc &) {
++                // Nothing has been submitted; use the unchanged P04 planner.
++            }
++        }
++        const auto * plan = shared_plan ? &*shared_plan : nullptr;
++
+         // P09B: the producer only prepares disjoint host upload slices. Backend
+         // calls remain on this scheduler thread and retain the original bank order.
+         // The existing readback synchronization above drains the previous batch
+@@ -899,9 +929,9 @@ struct llama_moe_cache::impl {
+                         const ggml_tensor * w = l.experts[ip];
+                         llama_exp::moe_upload_batch result;
+                         size_t used = 0;
+-                        const auto planned = llama_moe_cache_upload_experts(
++                        const auto planned = llama_moe_cache_upload_experts_planned(
+                             (const uint8_t *) w->data, w->nb[2], fills,
+-                            slice, slice_bytes, used,
++                            slice, slice_bytes, used, plan,
+                             [&](const uint8_t * data, size_t offset, size_t count) {
+                                 result.spans.push_back({ data, offset, count });
+                             });
+@@ -937,9 +967,9 @@ struct llama_moe_cache::impl {
+                 ggml_tensor       * bank = g.banks[ip];
+                 const size_t expert_size = w->nb[2];
+                 if (upload_device.upload_staging) {
+-                    const auto uploaded = llama_moe_cache_upload_experts(
++                    const auto uploaded = llama_moe_cache_upload_experts_planned(
+                         (const uint8_t *) w->data, expert_size, fills,
+-                        upload_device.upload_staging_base, upload_device.upload_staging_capacity, staging_used,
++                        upload_device.upload_staging_base, upload_device.upload_staging_capacity, staging_used, plan,
+                         [&](const uint8_t * data, size_t offset, size_t size) {
+                             ggml_backend_tensor_set_async(backend, bank, data, offset, size);
+                         });

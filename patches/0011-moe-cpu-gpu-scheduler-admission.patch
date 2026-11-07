@@ -1,0 +1,90 @@
+diff --git a/src/llama-moe-cache.cpp b/src/llama-moe-cache.cpp
+index 2c4bc21..253ed93 100644
+--- a/src/llama-moe-cache.cpp
++++ b/src/llama-moe-cache.cpp
+@@ -5,6 +5,7 @@
+ #include "llama-model.h"
+ #include "llama-experimental/upload_pipeline.hpp"
+ #include "llama-experimental/upload_plan.hpp"
++#include "llama-experimental/upload_scheduler.hpp"
+ 
+ #include "ggml-cpp.h"
+ 
+@@ -474,6 +475,13 @@ struct llama_moe_cache::impl {
+         size_t pipeline_banks = 0;             // total bank preparations
+         size_t pipeline_fallbacks = 0;         // path disabled or ineligible
+         size_t pipeline_staged_bytes = 0;      // host bytes copied into staging
++        size_t scheduler_admitted = 0;         // opt-in P14 selections
++        size_t scheduler_skipped_small = 0;
++        size_t scheduler_skipped_no_pack = 0;
++        size_t scheduler_skipped_staging = 0;
++        size_t scheduler_skipped_other = 0;
++        size_t scheduler_predicted_calls_saved = 0;
++        size_t scheduler_predicted_staged_bytes = 0;
+     } trace;
+ 
+     static constexpr int64_t max_batch = 32;
+@@ -906,7 +914,46 @@ struct llama_moe_cache::impl {
+         // before ANY staging bytes on this device can be reused.
+         size_t bytes = 0;
+         bool pipeline_done = false;
+-        if (llama_exp::moe_upload_pipeline::enabled() && upload_device.upload_staging &&
++        // P14A: optional CPU/GPU upload *admission* scheduling. P09B already
++        // overlaps CPU preparation with backend enqueue; P14A predicts whether
++        // the exact P04 packing can save upload calls for THIS known fill set.
++        // No CUDA stream is created here, and CPU-side timing is not DMA time.
++        // If rejected before the first upload, the unchanged serial/P04 path
++        // below handles all banks. Disabled -> P09B behaviour is unchanged.
++        bool scheduler_admitted = true;
++        if (llama_exp::moe_upload_scheduler::enabled() &&
++                llama_exp::moe_upload_pipeline::enabled() && upload_device.upload_staging &&
++                upload_device.upload_staging_base && !fills.empty() &&
++                l.experts.size() >= 2 && l.experts.size() <= 8 &&
++                g.banks.size() == l.experts.size()) {
++            for (const auto * w : l.experts) {
++                if (!w || !w->data || w->nb[2] == 0) {
++                    throw std::runtime_error("MoE scheduler invalid expert weight: refusing partial upload");
++                }
++            }
++            const auto admission = llama_exp::moe_upload_scheduler::assess(
++                    fills, l.experts.size(),
++                    [&](size_t ip) { return l.experts[ip]->nb[2]; },
++                    upload_device.upload_staging_capacity);
++            scheduler_admitted = admission.admitted;
++            if (trace.enabled) {
++                if (scheduler_admitted) {
++                    trace.scheduler_admitted++;
++                    trace.scheduler_predicted_calls_saved += admission.calls_saved;
++                    trace.scheduler_predicted_staged_bytes += admission.staged_bytes;
++                } else if (admission.reason == llama_exp::moe_schedule_reason::too_small) {
++                    trace.scheduler_skipped_small++;
++                } else if (admission.reason == llama_exp::moe_schedule_reason::no_coalescing ||
++                           admission.reason == llama_exp::moe_schedule_reason::too_little_packing) {
++                    trace.scheduler_skipped_no_pack++;
++                } else if (admission.reason == llama_exp::moe_schedule_reason::insufficient_staging) {
++                    trace.scheduler_skipped_staging++;
++                } else {
++                    trace.scheduler_skipped_other++;
++                }
++            }
++        }
++        if (scheduler_admitted && llama_exp::moe_upload_pipeline::enabled() && upload_device.upload_staging &&
+                 upload_device.upload_staging_base && !fills.empty() &&
+                 l.experts.size() >= 2 && l.experts.size() <= 8 &&
+                 g.banks.size() == l.experts.size()) {
+@@ -1047,6 +1094,15 @@ struct llama_moe_cache::impl {
+             static_cast<const void *>(this), int(llama_exp::moe_upload_pipeline::enabled()),
+             trace.pipeline_updates, trace.pipeline_banks, trace.pipeline_fallbacks,
+             trace.pipeline_staged_bytes);
++        LLAMA_LOG_INFO("llama_moe_cache: experimental_scheduler summary: cache=%p enabled=%d "
++                       "admitted=%zu skipped_small=%zu skipped_no_pack=%zu "
++                       "skipped_staging=%zu skipped_other=%zu "
++                       "predicted_saved_calls=%zu predicted_stage_bytes=%zu "
++                       "cuda_event_timing=not_measured gpu_compute_overlap=not_measured\n",
++            static_cast<const void *>(this), int(llama_exp::moe_upload_scheduler::enabled()),
++            trace.scheduler_admitted, trace.scheduler_skipped_small, trace.scheduler_skipped_no_pack,
++            trace.scheduler_skipped_staging, trace.scheduler_skipped_other,
++            trace.scheduler_predicted_calls_saved, trace.scheduler_predicted_staged_bytes);
+         // Existing stats count distinct expert IDs per layer update, not tokens or tensor copies.
+         const size_t hits   = stats_small.hits   + stats_large.hits;
+         const size_t misses = stats_small.misses + stats_large.misses;

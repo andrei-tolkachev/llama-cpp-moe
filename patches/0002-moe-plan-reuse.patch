@@ -1,0 +1,110 @@
+diff --git a/src/llama-moe-cache.cpp b/src/llama-moe-cache.cpp
+index d6520f76e1fc393ee711233e26eea1d16e8949f0..aaa6d92883f0b79b2cd4eed975e02ac9cbcfc2b4 100644
+--- a/src/llama-moe-cache.cpp
++++ b/src/llama-moe-cache.cpp
+@@ -148,6 +148,76 @@
+             }
+             key_of[s] = il*n_expert + e;
+             slots[e] = s;
++            move(s, false);
++            fills.push_back({ e, s });
++        }
++        return true;
++    }
++
++    // Same policy as plan(). Reuse uniq as miss scratch and retain scan positions
++    // across fills; hit promotion must finish before these positions are taken.
++    bool plan_reuse(int32_t il, const int32_t * ids, size_t n_ids, std::vector<fill> & fills, size_t & n_hit) {
++        // A single ID has neither useful sorting nor repeated victim scans.
++        if (n_ids <= 1) {
++            return plan(il, ids, n_ids, fills, n_hit);
++        }
++        fills.clear();
++        n_hit = 0;
++
++        if (++seen_gen == 0) {
++            std::fill(seen.begin(), seen.end(), 0);
++            seen_gen = 1;
++        }
++        uniq.clear();
++        for (size_t i = 0; i < n_ids; ++i) {
++            GGML_ASSERT(ids[i] >= 0 && ids[i] < n_expert);
++            if (seen[ids[i]] != seen_gen) {
++                seen[ids[i]] = seen_gen;
++                uniq.push_back(ids[i]);
++            }
++        }
++        if (uniq.size() > (size_t) n_slots) {
++            return false;
++        }
++
++        int32_t * slots = slot_map[il];
++        for (int32_t e : uniq) {
++            if (slots[e] >= 0) {
++                touch(slots[e]);
++                n_hit++;
++            }
++        }
++        if (n_hit == uniq.size()) {
++            return true;
++        }
++        if (n_hit > 0) {
++            uniq.erase(std::remove_if(uniq.begin(), uniq.end(), [&](int32_t e) { return slots[e] >= 0; }), uniq.end());
++        }
++        std::sort(uniq.begin(), uniq.end());
++
++        int32_t scan[2] = { head[0], head[1] };
++        auto next_victim = [&]() {
++            for (int segment = 0; segment < 2; ++segment) {
++                while (scan[segment] >= 0) {
++                    const int32_t s = scan[segment];
++                    scan[segment] = next[s]; // save before move() changes the links
++                    const int32_t key = key_of[s];
++                    if (key < 0 || key / n_expert != il || seen[key % n_expert] != seen_gen) {
++                        return s;
++                    }
++                }
++            }
++            GGML_ABORT("no SLRU victim");
++        };
++        for (int32_t e : uniq) {
++            const int32_t s = next_victim();
++            if (key_of[s] >= 0) {
++                slot_map[key_of[s] / n_expert][key_of[s] % n_expert] = -1;
++            }
++            key_of[s] = il*n_expert + e;
++            slots[e] = s;
++            // Only newly selected entries move now. Skipped entries cannot become
++            // victims, and entries appended to probation are also protected by seen.
+             move(s, false);
+             fills.push_back({ e, s });
+         }
+@@ -248,6 +318,7 @@
+     static constexpr int64_t max_batch = 32;
+ 
+     int32_t n_expert_used;
++    bool experimental_plan_reuse = false;
+ 
+     stats stats_small; // up to 8 tokens per ubatch
+     stats stats_large;
+@@ -275,6 +346,8 @@
+         const char * trace_env = std::getenv("LLAMA_EXPERIMENTAL_MOE_TRACE");
+         trace.enabled = trace_env != nullptr && trace_env[0] == '1' && trace_env[1] == '\0';
+         trace.no_alloc = no_alloc;
++        const char * plan_env = std::getenv("LLAMA_EXPERIMENTAL_MOE_PLAN_REUSE");
++        experimental_plan_reuse = plan_env != nullptr && plan_env[0] == '1' && plan_env[1] == '\0';
+         for (size_t i = 0; i < backends.size(); ++i) {
+             const auto dev_type = ggml_backend_dev_type(ggml_backend_get_device(backends[i]));
+             if (dev_type == GGML_BACKEND_DEVICE_TYPE_GPU || dev_type == GGML_BACKEND_DEVICE_TYPE_IGPU) {
+@@ -604,7 +677,10 @@
+         const int64_t trace_readback_end = trace.enabled ? ggml_time_us() : 0;
+ 
+         size_t n_hit = 0;
+-        if (!g.slru.plan(il, ids.data(), ids.size(), fills, n_hit)) {
++        const bool planned = experimental_plan_reuse
++            ? g.slru.plan_reuse(il, ids.data(), ids.size(), fills, n_hit)
++            : g.slru.plan(il, ids.data(), ids.size(), fills, n_hit);
++        if (!planned) {
+             GGML_ABORT("the MoE cache is too small for the experts selected in layer %d", il);
+         }
+         const int64_t trace_plan_end = trace.enabled ? ggml_time_us() : 0;

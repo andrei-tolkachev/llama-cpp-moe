@@ -1,0 +1,204 @@
+diff --git a/src/llama-moe-cache.cpp b/src/llama-moe-cache.cpp
+--- a/src/llama-moe-cache.cpp
++++ b/src/llama-moe-cache.cpp
+@@ -6,6 +6,7 @@
+ #include "llama-experimental/upload_pipeline.hpp"
+ #include "llama-experimental/upload_plan.hpp"
+ #include "llama-experimental/upload_scheduler.hpp"
++#include "llama-experimental/upload_completion.hpp"
+ 
+ #include "ggml-cpp.h"
+ 
+@@ -398,6 +399,30 @@
+         ggml_backend_buffer_is_host(t->buffer);
+ }
+ 
++// P14B adapter to the pinned ggml backend event API. No new stream.
++// If event_new() returns nullptr, drain() uses the full backend sync.
++struct moe_ggml_upload_event_adapter {
++    using backend_type = ggml_backend_t;
++    using event_type = ggml_backend_event_t;
++
++    static event_type create(backend_type b) {
++        return ggml_backend_event_new(ggml_backend_get_device(b));
++    }
++    static void record(event_type e, backend_type b) {
++        ggml_backend_event_record(e, b);
++    }
++    static void synchronize_event(event_type e) {
++        ggml_backend_event_synchronize(e);
++    }
++    static void synchronize_backend(backend_type b) {
++        ggml_backend_synchronize(b);
++    }
++    static void destroy(event_type e) {
++        ggml_backend_event_free(e);
++    }
++};
++using moe_ggml_upload_completion = llama_exp::moe_upload_completion<moe_ggml_upload_event_adapter>;
++
+ }
+ 
+ struct llama_moe_cache::impl {
+@@ -418,6 +443,9 @@
+         ggml_backend_buffer_ptr upload_staging;
+         uint8_t * upload_staging_base = nullptr;
+         size_t upload_staging_capacity = 0;
++        // Event ownership is explicitly closed by llama_context BEFORE its
++        // backends are destroyed; do not call a backend from ~impl().
++        std::unique_ptr<moe_ggml_upload_completion> upload_completion;
+     };
+ 
+     // layers of the same device with the same expert tensor layout share the banks and the LRU of a group
+@@ -482,6 +510,12 @@
+         size_t scheduler_skipped_other = 0;
+         size_t scheduler_predicted_calls_saved = 0;
+         size_t scheduler_predicted_staged_bytes = 0;
++        size_t event_fence_epochs = 0;
++        size_t event_fence_recorded = 0;
++        size_t event_fence_no_event = 0;
++        size_t event_fence_readback_retired = 0;
++        size_t event_fence_closed = 0;
++        size_t event_fence_close_pending = 0;
+     } trace;
+ 
+     static constexpr int64_t max_batch = 32;
+@@ -780,12 +814,27 @@
+     }
+ 
+     ~impl() {
+-        // The owning llama_context synchronizes its scheduler/backends before
+-        // destroying members. Like the cache banks, staging must outlive all
+-        // queued copies. Do not dereference backend pointers during teardown:
+-        // the owner's backend objects may already have been destroyed here.
++        // backend pointers may already be gone: no event/backend operations!
++        // llama_context::~llama_context() is REQUIRED to release events first.
++        for (const device & d : devices) {
++            if (d.upload_completion) std::terminate();
++        }
+         log_stats();
+         log_trace_summary();
++    }
++
++    void finish_upload_events() {
++        // Called from llama_context::~llama_context() after its existing
++        // synchronize() but BEFORE member destruction frees the backends.
++        for (device & d : devices) {
++            if (!d.upload_completion) continue;
++            if (trace.enabled && d.upload_completion->pending()) {
++                trace.event_fence_close_pending++;
++            }
++            d.upload_completion->close(); // wait pending H2D, release event
++            d.upload_completion.reset();
++            if (trace.enabled) trace.event_fence_closed++;
++        }
+     }
+ 
+     ggml_tensor * get_slot_map(int32_t il, int64_t n_tokens, int64_t n_expert_used) const {
+@@ -893,6 +942,12 @@
+         // this backend before its staging cursor is reset. Within this update,
+         // every bank gets disjoint ranges; another backend owns another buffer.
+         device & upload_device = devices[g.id];
++        // Existing routing-ID readback already synchronized THIS backend.
++        // Retire its previous event epoch without another GPU wait.
++        if (upload_device.upload_completion &&
++                upload_device.upload_completion->retired_after_backend_sync() && trace.enabled) {
++            trace.event_fence_readback_retired++;
++        }
+         size_t staging_used = 0;
+ 
+         // P12 is optional independently from P09/P10. The plan borrows no
+@@ -914,6 +969,24 @@
+         // before ANY staging bytes on this device can be reused.
+         size_t bytes = 0;
+         bool pipeline_done = false;
++        // P14B: only opt-in pinned staging uploads use a completion event.
++        // Construction and begin happen before ANY enqueue; unsupported
++        // backends are guarded by the existing full synchronize on errors.
++        const bool event_fence_active = moe_ggml_upload_completion::enabled() &&
++                upload_device.upload_staging && upload_device.upload_staging_base && !fills.empty();
++        if (event_fence_active && !upload_device.upload_completion) {
++            upload_device.upload_completion = std::make_unique<moe_ggml_upload_completion>(backend);
++            if (trace.enabled && !upload_device.upload_completion->event_supported()) {
++                trace.event_fence_no_event++;
++            }
++        }
++        auto * completion = event_fence_active ? upload_device.upload_completion.get() : nullptr;
++        if (completion) {
++            completion->begin_submission();
++            if (trace.enabled) trace.event_fence_epochs++;
++        }
++        // Scope auto-drains backend on any partial submit/record failure.
++        llama_exp::moe_upload_abort_scope<moe_ggml_upload_completion> abort_completion(completion);
+         // P14A: optional CPU/GPU upload *admission* scheduling. P09B already
+         // overlaps CPU preparation with backend enqueue; P14A predicts whether
+         // the exact P04 packing can save upload calls for THIS known fill set.
+@@ -1047,6 +1120,13 @@
+ 
+         // the next copy synchronizes the backend before it changes the slot map again
+         ggml_backend_tensor_set_async(backend, dst, src->data, 0, ggml_nbytes(src));
++        // P14B: event is queued AFTER the final slot-map write on the same
++        // backend. No host wait or secondary stream on the successful path.
++        if (completion) {
++            completion->record_after_slot_map();
++            abort_completion.commit();
++            if (trace.enabled) trace.event_fence_recorded++;
++        }
+ 
+         if (trace.enabled) {
+             const int64_t trace_enqueue_end = ggml_time_us();
+@@ -1103,6 +1183,13 @@
+             trace.scheduler_admitted, trace.scheduler_skipped_small, trace.scheduler_skipped_no_pack,
+             trace.scheduler_skipped_staging, trace.scheduler_skipped_other,
+             trace.scheduler_predicted_calls_saved, trace.scheduler_predicted_staged_bytes);
++        LLAMA_LOG_INFO("llama_moe_cache: experimental_event_fence summary: cache=%p enabled=%d "
++                       "epochs=%zu recorded=%zu unsupported_event_backends=%zu "
++                       "retired_by_existing_readback=%zu explicitly_closed=%zu close_pending=%zu "
++                       "separate_stream=no gpu_dma_timing=not_measured\n",
++            static_cast<const void *>(this), int(moe_ggml_upload_completion::enabled()),
++            trace.event_fence_epochs, trace.event_fence_recorded, trace.event_fence_no_event,
++            trace.event_fence_readback_retired, trace.event_fence_closed, trace.event_fence_close_pending);
+         // Existing stats count distinct expert IDs per layer update, not tokens or tensor copies.
+         const size_t hits   = stats_small.hits   + stats_large.hits;
+         const size_t misses = stats_small.misses + stats_large.misses;
+@@ -1146,6 +1233,10 @@
+ 
+ llama_moe_cache::~llama_moe_cache() = default;
+ 
++void llama_moe_cache::finish_upload_events() {
++    pimpl->finish_upload_events();
++}
++
+ ggml_backend_t llama_moe_cache::backend(int32_t il) const {
+     return pimpl->backend(il);
+ }
+diff --git a/src/llama-moe-cache.h b/src/llama-moe-cache.h
+--- a/src/llama-moe-cache.h
++++ b/src/llama-moe-cache.h
+@@ -15,6 +15,10 @@
+     // backends are all the backends of the context, each GPU gets its own cache of the given size for the layers assigned to it
+     llama_moe_cache(const llama_model & model, bool no_alloc, const std::vector<ggml_backend_t> & backends, const std::vector<ggml_backend_buffer_type_t> & bufts, size_t size);
+     ~llama_moe_cache();
++
++    // P14B: context MUST release optional upload events while its GPU backends
++    // are alive, after the scheduler's final synchronize(). Idempotent.
++    void finish_upload_events();
+ 
+     // the device that caches layer il
+     ggml_backend_t backend(int32_t il) const;
+diff --git a/src/llama-context.cpp b/src/llama-context.cpp
+--- a/src/llama-context.cpp
++++ b/src/llama-context.cpp
+@@ -630,6 +630,12 @@ llama_context::~llama_context() {
+ llama_context::~llama_context() {
+     // wait for any pending asynchronous copies into the output buffers before they are freed
+     synchronize();
+ 
++    // P14B: events reference these backends. Drain and release BEFORE the
++    // member destruction order destroys backends ahead of moe_cache.
++    if (moe_cache) {
++        moe_cache->finish_upload_events();
++    }
++
+     // when training, ggml_opt allocates extra buffers through the scheduler, so the sizes no longer match the expectation
+     if (!model.no_alloc() && !opt_ctx) {

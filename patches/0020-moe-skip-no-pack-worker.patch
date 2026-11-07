@@ -1,0 +1,65 @@
+diff --git a/src/llama-moe-cache.cpp b/src/llama-moe-cache.cpp
+--- a/src/llama-moe-cache.cpp
++++ b/src/llama-moe-cache.cpp
+@@ -383,6 +383,19 @@
+     return {m.bytes, m.staged_bytes, m.calls, m.calls_saved};
+ }
+ 
++// P04 only packs across a boundary between two different source runs
++// with consecutive destination slots. No such pair means no CPU packing
++// for any bank width or staging budget. SLRU-selected IDs are unchanged.
++static bool moe_prepare_inline(const std::vector<moe_cache_slru::fill> & fills) {
++    static const bool enabled = [] {
++        const char * env = std::getenv("LLAMA_EXPERIMENTAL_MOE_BYPASS_NO_PACK");
++        return env && env[0] == '1' && env[1] == '\0';
++    }();
++    return enabled && std::adjacent_find(fills.begin(), fills.end(), [](const auto & a, const auto & b) {
++        return int64_t(b.slot) == int64_t(a.slot) + 1 && int64_t(b.expert) != int64_t(a.expert) + 1;
++    }) == fills.end();
++}
++
+ // gate, up, down or gate_up, down
+ static std::vector<ggml_tensor *> llama_moe_cache_layer_experts(const llama_layer & layer) {
+     std::vector<ggml_tensor *> res;
+@@ -514,6 +527,7 @@
+         size_t staging_upload_calls_saved = 0;
+         size_t staging_packed_bytes = 0;
+         size_t pipeline_updates = 0;           // number of successfully enqueued updates
++        size_t pipeline_inline_updates = 0;    // R20 no-pack submissions without producer
+         size_t pipeline_banks = 0;             // total bank preparations
+         size_t pipeline_fallbacks = 0;         // path disabled or ineligible
+         size_t pipeline_staged_bytes = 0;      // host bytes copied into staging
+@@ -1063,6 +1077,7 @@
+             if (!valid) {
+                 throw std::runtime_error("MoE pipeline invalid expert weight: refusing partial upload");
+             }
++            const bool inline_prepare = moe_prepare_inline(fills);
+             pipeline_done = llama_exp::moe_upload_pipeline::execute(
+                     upload_device.upload_staging_base, upload_device.upload_staging_capacity,
+                     l.experts.size(), min_slice,
+@@ -1095,7 +1110,10 @@
+                             trace.pipeline_staged_bytes += prepared.staged_bytes;
+                         }
+                     },
+-                    [&] { ggml_backend_synchronize(backend); });
++                    [&] { ggml_backend_synchronize(backend); }, inline_prepare);
++            if (trace.enabled && pipeline_done && inline_prepare) {
++                trace.pipeline_inline_updates++;
++            }
+         }
+         if (trace.enabled && llama_exp::moe_upload_pipeline::enabled()) {
+             if (pipeline_done) trace.pipeline_updates++;
+@@ -1191,11 +1209,11 @@
+             trace.staging_fallback_backends, trace.staging_upload_calls, trace.staging_upload_calls_saved,
+             trace.staging_packed_bytes, trace.staging_packed_bytes);
+         LLAMA_LOG_INFO("llama_moe_cache: experimental_pipeline summary: cache=%p enabled=%d "
+-                       "updates=%zu banks=%zu fallbacks=%zu staged_bytes=%zu "
++                       "updates=%zu banks=%zu fallbacks=%zu staged_bytes=%zu inline_no_pack_updates=%zu "
+                        "gpu_stream_overlap=not_measured cpu_gpu_overlap=not_measured\n",
+             static_cast<const void *>(this), int(llama_exp::moe_upload_pipeline::enabled()),
+             trace.pipeline_updates, trace.pipeline_banks, trace.pipeline_fallbacks,
+-            trace.pipeline_staged_bytes);
++            trace.pipeline_staged_bytes, trace.pipeline_inline_updates);
+         LLAMA_LOG_INFO("llama_moe_cache: experimental_scheduler summary: cache=%p enabled=%d "
+                        "admitted=%zu skipped_small=%zu skipped_no_pack=%zu "
+                        "skipped_staging=%zu skipped_other=%zu "

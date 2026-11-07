@@ -1,0 +1,86 @@
+diff --git a/ggml/src/ggml-cuda/mmq.cu b/ggml/src/ggml-cuda/mmq.cu
+--- a/ggml/src/ggml-cuda/mmq.cu
++++ b/ggml/src/ggml-cuda/mmq.cu
+@@ -2,8 +2,10 @@
+ #include "mmq.cuh"
+ #include "quantize.cuh"
+ #include "mmid.cuh"
++#include "llama-experimental/mmq_tile_cache.hpp"
+ 
+ #include <cstdint>
++#include <cstdlib>
+ 
+ static void ggml_cuda_mul_mat_q_switch_type(ggml_backend_cuda_context & ctx, const mmq_args & args, cudaStream_t stream, const ggml_prec prec_src1) {
+     switch (args.type_x) {
+@@ -159,6 +161,60 @@
+         }
+     }
+     return J_best;
++}
++
++// P15B: preserve the exact upstream tile solver, memoize only the small
++// repeated host dispatch for supported quantized MoE types (never dense/FP4).
++static bool ggml_cuda_mmq_moe_tile_cache_type(ggml_type type) {
++    switch (type) {
++        case GGML_TYPE_Q4_0:
++        case GGML_TYPE_Q4_1:
++        case GGML_TYPE_Q3_K:
++        case GGML_TYPE_Q4_K:
++        case GGML_TYPE_IQ3_XXS:
++        case GGML_TYPE_IQ3_S:
++        case GGML_TYPE_IQ4_XS:
++        case GGML_TYPE_IQ4_NL:
++            return true;
++        default:
++            return false;
++    }
++}
++
++static bool ggml_cuda_mmq_moe_tile_cache_enabled() {
++    // This is per-process like GGML_CUDA_MMQ_PREC. Changing the environment
++    // after the first MMQ call is not supported or required.
++    static const bool enabled = [] {
++        const char * env = std::getenv("LLAMA_EXPERIMENTAL_CUDA_MMQ_TILE_CACHE");
++        return env && env[0] == '1' && env[1] == '\0';
++    }();
++    return enabled;
++}
++
++static int ggml_cuda_mmq_get_J_best_moe_cached(
++        ggml_type type, int64_t ncols, bool fallback, int cc, size_t smpbo,
++        ggml_prec prec_src1, int * nthreads_best) {
++    if (!ggml_cuda_mmq_moe_tile_cache_enabled() ||
++            !ggml_cuda_mmq_moe_tile_cache_type(type) || ncols <= 0) {
++        return ggml_cuda_mmq_get_J_best(type, ncols, fallback, cc, smpbo, prec_src1, nthreads_best);
++    }
++    // Only one thread ever accesses a given table, no mutex/heap allocation.
++    // This cache stores a J + nthreads pair, NOT a kernel or any GPU memory.
++    static thread_local llama_exp::mmq_tile_cache<32> cache;
++    const llama_exp::mmq_tile_key key{
++        int32_t(type), ncols, fallback, cc, uint64_t(smpbo), int32_t(prec_src1)};
++    const auto result = cache.get_or_compute(key, [&] {
++        int nthreads = 0;
++        const int J = ggml_cuda_mmq_get_J_best(
++                type, ncols, fallback, cc, smpbo, prec_src1, &nthreads);
++        return llama_exp::mmq_tile_result{J, nthreads};
++    });
++    // If no configuration fits, the original solver leaves nthreads_best
++    // untouched; preserve that detail for exact fallback parity.
++    if (nthreads_best && result.J > 0) {
++        *nthreads_best = result.nthreads;
++    }
++    return result.J;
+ }
+ 
+ void ggml_cuda_mul_mat_q(
+@@ -247,7 +303,9 @@
+             }
+         }
+ 
+-        J_best = ggml_cuda_mmq_get_J_best(src0->type, ncols_opt, fallback, cc, smpbo, prec_src1, &nthreads_best);
++        J_best = ids
++                ? ggml_cuda_mmq_get_J_best_moe_cached(src0->type, ncols_opt, fallback, cc, smpbo, prec_src1, &nthreads_best)
++                : ggml_cuda_mmq_get_J_best(src0->type, ncols_opt, fallback, cc, smpbo, prec_src1, &nthreads_best);
+     }
+     GGML_ASSERT(J_best > 0);
+ 

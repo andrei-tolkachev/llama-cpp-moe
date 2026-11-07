@@ -1,0 +1,85 @@
+diff --git a/src/llama-moe-cache.cpp b/src/llama-moe-cache.cpp
+--- a/src/llama-moe-cache.cpp
++++ b/src/llama-moe-cache.cpp
+@@ -44,17 +44,30 @@
+         this->n_expert = n_expert;
+         this->n_slots  = n_slots;
+         slot_map.assign(n_layer, nullptr);
+-        key_of.assign(n_slots, -1);
++        key_of.resize(n_slots);
+         prev.resize(n_slots);
+         next.resize(n_slots);
++        is_protected.resize(n_slots);
++        seen.assign(n_expert, 0);
++        invalidate_banks();
++    }
++
++    // Called either during initialization or after a synchronized failed update.
++    // Preserve the borrowed host maps, but require a fresh fill of every bank.
++    void invalidate_banks() {
++        for (auto * slots : slot_map) {
++            if (slots) std::fill_n(slots, n_expert, -1);
++        }
++        std::fill(key_of.begin(), key_of.end(), -1);
++        std::fill(is_protected.begin(), is_protected.end(), false);
++        n_protected = 0;
++        head[1] = tail[1] = -1;
+         for (int32_t s = 0; s < n_slots; ++s) {
+             prev[s] = s - 1;
+             next[s] = s + 1 < n_slots ? s + 1 : -1;
+         }
+         head[0] = 0;
+         tail[0] = n_slots - 1;
+-        is_protected.assign(n_slots, false);
+-        seen.assign(n_expert, 0);
+     }
+ 
+     // move slot s to the most recently used end of a segment
+@@ -457,6 +470,7 @@
+         size_t host_bytes = 0;
+         int32_t n_slots = 0;
+         moe_cache_slru slru;
++        bool upload_complete = true; // false from SLRU mutation until all uploads are queued
+     };
+ 
+     struct layer {
+@@ -862,7 +876,7 @@
+         }
+         const binding & b = it->second;
+         const group & g = groups[layers[b.il].ig];
+-        if (backend != devices[g.id].backend) {
++        if (backend != devices[g.id].backend || !g.upload_complete) {
+             return 0;
+         }
+ 
+@@ -929,6 +943,13 @@
+         ggml_backend_synchronize(backend);
+         const int64_t trace_readback_end = trace.enabled ? ggml_time_us() : 0;
+ 
++        // A failed prepare/submit may have changed the host maps without
++        // uploading all corresponding weights. The readback sync above makes
++        // all banks and their host maps safe to invalidate before a retry.
++        if (!g.upload_complete) {
++            g.slru.invalidate_banks();
++        }
++        g.upload_complete = false;
+         size_t n_hit = 0;
+         const bool planned = experimental_plan_reuse
+             ? g.slru.plan_reuse(il, ids.data(), ids.size(), fills, n_hit)
+@@ -1125,7 +1146,7 @@
+         if (completion) {
+             completion->record_after_slot_map();
+             abort_completion.commit();
+-            if (trace.enabled) trace.event_fence_recorded++;
++            if (trace.enabled && completion->event_supported()) trace.event_fence_recorded++;
+         }
+ 
+         if (trace.enabled) {
+@@ -1138,6 +1159,7 @@
+             trace.upload_enqueue_host_us += trace_enqueue_end - trace_plan_end;
+         }
+ 
++        g.upload_complete = true;
+         return true;
+     }
+ 

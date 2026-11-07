@@ -1,0 +1,59 @@
+diff --git a/ggml/src/ggml-cuda/mmq.cu b/ggml/src/ggml-cuda/mmq.cu
+index c14c105..9f94bd1 100644
+--- a/ggml/src/ggml-cuda/mmq.cu
++++ b/ggml/src/ggml-cuda/mmq.cu
+@@ -3,6 +3,7 @@
+ #include "quantize.cuh"
+ #include "mmid.cuh"
+ #include "llama-experimental/mmq_tile_cache.hpp"
++#include "llama-experimental/mmq_select_probe.hpp"
+ 
+ #include <cstdint>
+ #include <cstdlib>
+@@ -193,7 +194,10 @@ static bool ggml_cuda_mmq_moe_tile_cache_enabled() {
+ 
+ static int ggml_cuda_mmq_get_J_best_moe_cached(
+         ggml_type type, int64_t ncols, bool fallback, int cc, size_t smpbo,
+-        ggml_prec prec_src1, int * nthreads_best) {
++        ggml_prec prec_src1, int * nthreads_best, bool * cache_hit = nullptr) {
++    if (cache_hit) {
++        *cache_hit = false;
++    }
+     if (!ggml_cuda_mmq_moe_tile_cache_enabled() ||
+             !ggml_cuda_mmq_moe_tile_cache_type(type) || ncols <= 0) {
+         return ggml_cuda_mmq_get_J_best(type, ncols, fallback, cc, smpbo, prec_src1, nthreads_best);
+@@ -203,7 +207,13 @@ static int ggml_cuda_mmq_get_J_best_moe_cached(
+     static thread_local llama_exp::mmq_tile_cache<32> cache;
+     const llama_exp::mmq_tile_key key{
+         int32_t(type), ncols, fallback, cc, uint64_t(smpbo), int32_t(prec_src1)};
++    if (cache_hit) {
++        *cache_hit = true; // reset on a miss inside the compute callback
++    }
+     const auto result = cache.get_or_compute(key, [&] {
++        if (cache_hit) {
++            *cache_hit = false;
++        }
+         int nthreads = 0;
+         const int J = ggml_cuda_mmq_get_J_best(
+                 type, ncols, fallback, cc, smpbo, prec_src1, &nthreads);
+@@ -303,9 +313,19 @@ void ggml_cuda_mul_mat_q(
+             }
+         }
+ 
++        // P15C: CPU-side selection timing only, NOT CUDA execution timing.
++        const bool mmq_profile = llama_exp::mmq_select_probe::enabled();
++        const uint64_t selection_start = mmq_profile ? llama_exp::mmq_select_probe::clock_ns() : 0;
++        bool cache_hit = false;
+         J_best = ids
+-                ? ggml_cuda_mmq_get_J_best_moe_cached(src0->type, ncols_opt, fallback, cc, smpbo, prec_src1, &nthreads_best)
++                ? ggml_cuda_mmq_get_J_best_moe_cached(src0->type, ncols_opt, fallback, cc, smpbo, prec_src1, &nthreads_best,
++                        mmq_profile ? &cache_hit : nullptr)
+                 : ggml_cuda_mmq_get_J_best(src0->type, ncols_opt, fallback, cc, smpbo, prec_src1, &nthreads_best);
++        if (mmq_profile) {
++            llama_exp::mmq_select_probe::local().record(
++                    int(src0->type), ids != nullptr, ncols_opt, cache_hit,
++                    llama_exp::mmq_select_probe::clock_ns() - selection_start);
++        }
+     }
+     GGML_ASSERT(J_best > 0);
+ 

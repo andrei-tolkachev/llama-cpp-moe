@@ -1,0 +1,174 @@
+diff --git a/src/llama-moe-cache.cpp b/src/llama-moe-cache.cpp
+--- a/src/llama-moe-cache.cpp
++++ b/src/llama-moe-cache.cpp
+@@ -1,10 +1,11 @@
+ #include "llama-moe-cache.h"
+ 
+ #include "llama-impl.h"
+ #include "llama-memory.h"
+ #include "llama-model.h"
++#include "llama-experimental/upload_pipeline.hpp"
+ 
+ #include "ggml-cpp.h"
+ 
+ #include <algorithm>
+ #include <cstdlib>
+@@ -450,10 +451,14 @@
+         size_t staging_backends_enabled = 0;
+         size_t staging_fallback_backends = 0;
+         size_t staging_upload_calls = 0;
+         size_t staging_upload_calls_saved = 0;
+         size_t staging_packed_bytes = 0;
++        size_t pipeline_updates = 0;           // number of successfully enqueued updates
++        size_t pipeline_banks = 0;             // total bank preparations
++        size_t pipeline_fallbacks = 0;         // path disabled or ineligible
++        size_t pipeline_staged_bytes = 0;      // host bytes copied into staging
+     } trace;
+ 
+     static constexpr int64_t max_batch = 32;
+ 
+     int32_t n_expert_used;
+@@ -863,39 +868,100 @@
+         // this backend before its staging cursor is reset. Within this update,
+         // every bank gets disjoint ranges; another backend owns another buffer.
+         device & upload_device = devices[g.id];
+         size_t staging_used = 0;
+ 
+-        // upload the missing experts, consecutive experts going to consecutive slots are uploaded together
++        // P09B: the producer only prepares disjoint host upload slices. Backend
++        // calls remain on this scheduler thread and retain the original bank order.
++        // The existing readback synchronization above drains the previous batch
++        // before ANY staging bytes on this device can be reused.
+         size_t bytes = 0;
+-        for (size_t ip = 0; ip < l.experts.size(); ++ip) {
+-            const ggml_tensor * w    = l.experts[ip];
+-            ggml_tensor       * bank = g.banks[ip];
+-            const size_t expert_size = w->nb[2];
+-            if (upload_device.upload_staging) {
+-                const auto uploaded = llama_moe_cache_upload_experts(
+-                    (const uint8_t *) w->data, expert_size, fills,
+-                    upload_device.upload_staging_base, upload_device.upload_staging_capacity, staging_used,
+-                    [&](const uint8_t * data, size_t offset, size_t size) {
+-                        ggml_backend_tensor_set_async(backend, bank, data, offset, size);
+-                    });
+-                bytes += uploaded.bytes;
+-                if (trace.enabled) {
+-                    trace.staging_upload_calls += uploaded.calls;
+-                    trace.staging_upload_calls_saved += uploaded.calls_saved;
+-                    trace.staging_packed_bytes += uploaded.staged_bytes;
++        bool pipeline_done = false;
++        if (llama_exp::moe_upload_pipeline::enabled() && upload_device.upload_staging &&
++                upload_device.upload_staging_base && !fills.empty() &&
++                l.experts.size() >= 2 && l.experts.size() <= 8 &&
++                g.banks.size() == l.experts.size()) {
++            size_t min_slice = 0;
++            bool valid = true;
++            for (const auto * w : l.experts) {
++                if (!w || !w->data || w->nb[2] == 0) {
++                    valid = false;
++                    break;
+                 }
+-                continue;
+-            }
+-            for (size_t i = 0; i < fills.size();) {
+-                size_t n = 1;
+-                while (i + n < fills.size() && fills[i + n].expert == fills[i].expert + (int32_t) n && fills[i + n].slot == fills[i].slot + (int32_t) n) {
+-                    n++;
++                min_slice = std::max(min_slice, w->nb[2]);
++            }
++            if (!valid) {
++                throw std::runtime_error("MoE pipeline invalid expert weight: refusing partial upload");
++            }
++            pipeline_done = llama_exp::moe_upload_pipeline::execute(
++                    upload_device.upload_staging_base, upload_device.upload_staging_capacity,
++                    l.experts.size(), min_slice,
++                    [&](size_t ip, uint8_t * slice, size_t slice_bytes) -> llama_exp::moe_upload_batch {
++                        const ggml_tensor * w = l.experts[ip];
++                        llama_exp::moe_upload_batch result;
++                        size_t used = 0;
++                        const auto planned = llama_moe_cache_upload_experts(
++                            (const uint8_t *) w->data, w->nb[2], fills,
++                            slice, slice_bytes, used,
++                            [&](const uint8_t * data, size_t offset, size_t count) {
++                                result.spans.push_back({ data, offset, count });
++                            });
++                        result.bytes        = planned.bytes;
++                        result.staged_bytes = planned.staged_bytes;
++                        result.calls_saved  = planned.calls_saved;
++                        return result;
++                    },
++                    [&](size_t ip, const llama_exp::moe_upload_batch & prepared) {
++                        ggml_tensor * bank = g.banks[ip];
++                        for (const auto & span : prepared.spans) {
++                            ggml_backend_tensor_set_async(backend, bank, span.data, span.dst_offset, span.size);
++                        }
++                        bytes += prepared.bytes;
++                        if (trace.enabled) {
++                            trace.staging_upload_calls += prepared.spans.size();
++                            trace.staging_upload_calls_saved += prepared.calls_saved;
++                            trace.staging_packed_bytes += prepared.staged_bytes;
++                            trace.pipeline_banks++;
++                            trace.pipeline_staged_bytes += prepared.staged_bytes;
++                        }
++                    },
++                    [&] { ggml_backend_synchronize(backend); });
++        }
++        if (trace.enabled && llama_exp::moe_upload_pipeline::enabled()) {
++            if (pipeline_done) trace.pipeline_updates++;
++            else trace.pipeline_fallbacks++;
++        }
++        if (!pipeline_done) {
++            // P04 serial staging and original direct-upload fallback are unchanged.
++            for (size_t ip = 0; ip < l.experts.size(); ++ip) {
++                const ggml_tensor * w    = l.experts[ip];
++                ggml_tensor       * bank = g.banks[ip];
++                const size_t expert_size = w->nb[2];
++                if (upload_device.upload_staging) {
++                    const auto uploaded = llama_moe_cache_upload_experts(
++                        (const uint8_t *) w->data, expert_size, fills,
++                        upload_device.upload_staging_base, upload_device.upload_staging_capacity, staging_used,
++                        [&](const uint8_t * data, size_t offset, size_t size) {
++                            ggml_backend_tensor_set_async(backend, bank, data, offset, size);
++                        });
++                    bytes += uploaded.bytes;
++                    if (trace.enabled) {
++                        trace.staging_upload_calls += uploaded.calls;
++                        trace.staging_upload_calls_saved += uploaded.calls_saved;
++                        trace.staging_packed_bytes += uploaded.staged_bytes;
++                    }
++                    continue;
+                 }
+-                ggml_backend_tensor_set_async(backend, bank, (const uint8_t *) w->data + fills[i].expert*expert_size, fills[i].slot*expert_size, n*expert_size);
+-                bytes += n*expert_size;
+-                i += n;
++                for (size_t i = 0; i < fills.size();) {
++                    size_t n = 1;
++                    while (i + n < fills.size() && fills[i + n].expert == fills[i].expert + (int32_t) n && fills[i + n].slot == fills[i].slot + (int32_t) n) {
++                        n++;
++                    }
++                    ggml_backend_tensor_set_async(backend, bank, (const uint8_t *) w->data + fills[i].expert*expert_size, fills[i].slot*expert_size, n*expert_size);
++                    bytes += n*expert_size;
++                    i += n;
++                }
+             }
+         }
+ 
+         stats & st = ids.size() <= (size_t) 8*n_expert_used ? stats_small : stats_large;
+         st.hits   += n_hit;
+@@ -943,10 +1009,16 @@
+                        "extra_host_copy_bytes=%zu traffic_bytes_reduced=no\n",
+             static_cast<const void *>(this), int(trace.no_alloc), int(trace.staging_env_invalid),
+             trace.staging_requested_bytes, trace.staging_allocated_bytes, trace.staging_backends_enabled,
+             trace.staging_fallback_backends, trace.staging_upload_calls, trace.staging_upload_calls_saved,
+             trace.staging_packed_bytes, trace.staging_packed_bytes);
++        LLAMA_LOG_INFO("llama_moe_cache: experimental_pipeline summary: cache=%p enabled=%d "
++                       "updates=%zu banks=%zu fallbacks=%zu staged_bytes=%zu "
++                       "gpu_stream_overlap=not_measured cpu_gpu_overlap=not_measured\n",
++            static_cast<const void *>(this), int(llama_exp::moe_upload_pipeline::enabled()),
++            trace.pipeline_updates, trace.pipeline_banks, trace.pipeline_fallbacks,
++            trace.pipeline_staged_bytes);
+         // Existing stats count distinct expert IDs per layer update, not tokens or tensor copies.
+         const size_t hits   = stats_small.hits   + stats_large.hits;
+         const size_t misses = stats_small.misses + stats_large.misses;
+         const size_t bytes  = stats_small.bytes  + stats_large.bytes;
+         const size_t requests = hits + misses;

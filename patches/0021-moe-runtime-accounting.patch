@@ -1,0 +1,183 @@
+diff --git a/src/llama-context.cpp b/src/llama-context.cpp
+--- a/src/llama-context.cpp
++++ b/src/llama-context.cpp
+@@ -2817,7 +2817,7 @@
+         set_n_threads_fn.second(set_n_threads_fn.first, n_threads);
+     }
+ 
+-    copy_experts.reset();
++    copy_experts.reset(batched);
+ 
+     auto status = ggml_backend_sched_graph_compute_async(sched.get(), gf);
+     if (status != GGML_STATUS_SUCCESS) {
+@@ -2833,7 +2833,7 @@
+     auto * lctx = static_cast<llama_context *>(user_data);
+ 
+     // the slot maps of the MoE cache
+-    if (lctx->moe_cache && lctx->moe_cache->copy(backend, src, dst, graph)) {
++    if (lctx->moe_cache && lctx->moe_cache->copy(backend, src, dst, graph, lctx->copy_experts.batched)) {
+         return true;
+     }
+ 
+@@ -4024,7 +4024,7 @@
+                     ggml_backend_tensor_set(labels, &onef, (pos_ubatch*labels->ne[0] + labels_sparse[ilabel])*sizeof(float), sizeof(float));
+                 }
+             }
+-            copy_experts.reset();
++            copy_experts.reset(ubatch.n_tokens > 1);
+             ggml_opt_eval(opt_ctx, result);
+             if (callback) {
+                 callback(train, opt_ctx, dataset, result, idata_in_loop + (pos_ctx + pos_batch)/n_ubatch + 1, ndata_in_loop, t_loop_start);
+diff --git a/src/llama-context.h b/src/llama-context.h
+--- a/src/llama-context.h
++++ b/src/llama-context.h
+@@ -374,11 +374,13 @@
+ 
+     // state of sched_copy_experts, reset before each graph compute
+     struct copy_experts_info {
++        bool                 batched = false;
+         const ggml_tensor *  ids = nullptr;
+         std::vector<int32_t> ids_data;
+         std::vector<bool>    used;
+ 
+-        void reset() {
++        void reset(bool multi_token) {
++            batched = multi_token;
+             ids = nullptr;
+             ids_data.clear();
+             used.clear();
+diff --git a/src/llama-moe-cache.cpp b/src/llama-moe-cache.cpp
+--- a/src/llama-moe-cache.cpp
++++ b/src/llama-moe-cache.cpp
+@@ -11,6 +11,7 @@
+ #include "ggml-cpp.h"
+ 
+ #include <algorithm>
++#include <cinttypes>
+ #include <cstdlib>
+ #include <cstring>
+ #include <optional>
+@@ -504,6 +505,13 @@
+         size_t bytes  = 0;
+     };
+ 
++    // Classification uses the scheduler's actual graph ubatch, not flattened top-k length.
++    struct routing_trace {
++        size_t legacy = 0, reuse = 0, reuse_single_id_fallback = 0;
++        size_t updates = 0, hits = 0, misses = 0, requested = 0;
++        int64_t readback_us = 0, plan_us = 0, enqueue_us = 0;
++    };
++
+     // Opt-in, per-cache aggregates. Timers measure host API intervals, not GPU execution.
+     struct experimental_trace {
+         bool enabled  = false;
+@@ -513,6 +521,9 @@
+         size_t host_layers_without_matching_gpu = 0;
+         size_t eligible_layers = 0;
+         size_t cache_update_calls = 0;
++        routing_trace routing[2]; // [single-token ubatch, multi-token ubatch]
++        size_t shared_plan_attempts = 0, shared_plan_alloc_fallbacks = 0;
++        size_t shared_plan_completed = 0, shared_plan_bank_uses = 0;
+         size_t id_readback_bytes_requested = 0;
+         size_t slot_map_upload_bytes_requested = 0;
+         int64_t id_readback_sync_host_us = 0;
+@@ -918,7 +929,7 @@
+         return n;
+     }
+ 
+-    bool copy(ggml_backend_t backend, const ggml_tensor * src, ggml_tensor * dst, ggml_cgraph * graph) {
++    bool copy(ggml_backend_t backend, const ggml_tensor * src, ggml_tensor * dst, ggml_cgraph * graph, bool batched) {
+         const auto it = layer_of.find(src);
+         if (it == layer_of.end()) {
+             return false;
+@@ -965,6 +976,16 @@
+         }
+         g.upload_complete = false;
+         size_t n_hit = 0;
++        if (trace.enabled) {
++            routing_trace & rt = trace.routing[batched];
++            if (!experimental_plan_reuse) {
++                rt.legacy++;
++            } else if (ids.size() <= 1) {
++                rt.reuse_single_id_fallback++;
++            } else {
++                rt.reuse++;
++            }
++        }
+         const bool planned = experimental_plan_reuse
+             ? g.slru.plan_reuse(il, ids.data(), ids.size(), fills, n_hit)
+             : g.slru.plan(il, ids.data(), ids.size(), fills, n_hit);
+@@ -991,8 +1012,10 @@
+         std::optional<llama_exp::moe_fill_plan> shared_plan;
+         if (llama_exp::moe_fill_plan::enabled() && upload_device.upload_staging && !fills.empty()) {
+             try {
++                if (trace.enabled) trace.shared_plan_attempts++;
+                 shared_plan.emplace(fills);
+             } catch (const std::bad_alloc &) {
++                if (trace.enabled) trace.shared_plan_alloc_fallbacks++;
+                 // Nothing has been submitted; use the unchanged P04 planner.
+             }
+         }
+@@ -1169,6 +1192,18 @@
+ 
+         if (trace.enabled) {
+             const int64_t trace_enqueue_end = ggml_time_us();
++            routing_trace & rt = trace.routing[batched];
++            rt.updates++;
++            rt.hits += n_hit;
++            rt.misses += fills.size();
++            rt.requested += bytes;
++            rt.readback_us += trace_readback_end - trace_readback_begin;
++            rt.plan_us += trace_plan_end - trace_readback_end;
++            rt.enqueue_us += trace_enqueue_end - trace_plan_end;
++            if (plan) {
++                trace.shared_plan_completed++;
++                trace.shared_plan_bank_uses += l.experts.size();
++            }
+             trace.cache_update_calls++;
+             trace.id_readback_bytes_requested += ggml_nbytes(sel);
+             trace.slot_map_upload_bytes_requested += ggml_nbytes(src);
+@@ -1200,6 +1235,20 @@
+         if (!trace.enabled) {
+             return;
+         }
++        for (size_t i = 0; i < 2; ++i) {
++            const routing_trace & rt = trace.routing[i];
++            LLAMA_LOG_INFO("llama_moe_cache: experimental_routing cache=%p ubatch=%s updates=%zu "
++                           "legacy=%zu reuse=%zu reuse_single_id_fallback=%zu hits=%zu misses=%zu "
++                           "expert_bytes_requested=%zu readback_sync_host_us=%" PRId64 " plan_host_us=%" PRId64
++                           " enqueue_host_us=%" PRId64 "\n",
++                    static_cast<const void *>(this), i == 0 ? "one" : "multi", rt.updates,
++                    rt.legacy, rt.reuse, rt.reuse_single_id_fallback, rt.hits, rt.misses, rt.requested,
++                    rt.readback_us, rt.plan_us, rt.enqueue_us);
++        }
++        LLAMA_LOG_INFO("llama_moe_cache: experimental_shared_plan cache=%p attempts=%zu alloc_fallbacks=%zu "
++                       "completed_updates=%zu bank_uses_completed=%zu\n", static_cast<const void *>(this),
++                trace.shared_plan_attempts, trace.shared_plan_alloc_fallbacks,
++                trace.shared_plan_completed, trace.shared_plan_bank_uses);
+         LLAMA_LOG_INFO("llama_moe_cache: experimental_staging summary: cache=%p no_alloc=%d "
+                        "invalid_env=%d requested_bytes=%zu allocated_host_bytes=%zu enabled_backends=%zu "
+                        "fallback_backends=%zu upload_calls=%zu upload_calls_saved=%zu staged_bytes=%zu "
+@@ -1289,8 +1338,8 @@
+     return pimpl->get_experts(w);
+ }
+ 
+-bool llama_moe_cache::copy(ggml_backend_t backend, const ggml_tensor * src, ggml_tensor * dst, ggml_cgraph * graph) {
+-    return pimpl->copy(backend, src, dst, graph);
++bool llama_moe_cache::copy(ggml_backend_t backend, const ggml_tensor * src, ggml_tensor * dst, ggml_cgraph * graph, bool batched) {
++    return pimpl->copy(backend, src, dst, graph, batched);
+ }
+ 
+ int64_t llama_moe_cache::copy_experts(ggml_backend_t backend, const ggml_tensor * w, ggml_tensor * dst, int64_t e, int64_t last) {
+diff --git a/src/llama-moe-cache.h b/src/llama-moe-cache.h
+--- a/src/llama-moe-cache.h
++++ b/src/llama-moe-cache.h
+@@ -30,7 +30,7 @@
+     ggml_tensor * get_experts(const ggml_tensor * w) const;
+ 
+     // ggml_backend_sched copy callback, returns false if src is not a slot map
+-    bool copy(ggml_backend_t backend, const ggml_tensor * src, ggml_tensor * dst, ggml_cgraph * graph);
++    bool copy(ggml_backend_t backend, const ggml_tensor * src, ggml_tensor * dst, ggml_cgraph * graph, bool batched);
+ 
+     // for large batches: copy the experts of w that are in the cache, starting at expert e and up to expert last, to the copy dst of w
+     // returns the number of experts copied, 0 if expert e is not in the cache

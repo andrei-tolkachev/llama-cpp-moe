@@ -1,0 +1,298 @@
+--- a/src/llama-context.cpp
++++ b/src/llama-context.cpp
+@@ -15,6 +15,7 @@
+ #include "llama.h"
+ 
+ #include <cinttypes>
++#include <cstdlib>
+ #include <cmath>
+ #include <cstring>
+ #include <limits>
+@@ -369,6 +370,29 @@
+     cparams.op_offload     = params.op_offload;
+     cparams.kv_unified     = params.kv_unified;
+     cparams.moe_cache_size = params.moe_cache_size;
++
++    const char * phase_mib = getenv("LLAMA_EXPERIMENTAL_MOE_PHASE_PREFILL_MIB");
++    if (phase_mib && phase_mib[0]) {
++        const std::string value(phase_mib);
++        if (value.find_first_not_of("0123456789") != std::string::npos) {
++            throw std::runtime_error("MoE phase prefill budget must be a positive integer in MiB");
++        }
++        const unsigned long long mib = std::stoull(value);
++        if (!mib || mib > cparams.moe_cache_size / (1024u * 1024u) ||
++                cparams.n_ubatch < 512 || cparams.n_seq_max != 1 ||
++                !cparams.causal_attn || cparams.embeddings || model.no_alloc()) {
++            throw std::runtime_error("MoE phase prototype requires a single causal generation slot, ubatch >= 512, "
++                    "and a prefill cache no larger than the decode cache; estimate each phase separately");
++        }
++        moe_phase_decode_bytes = cparams.moe_cache_size;
++        moe_phase_prefill_bytes = size_t(mib) * 1024u * 1024u;
++        moe_phase_prefill_ubatch = cparams.n_ubatch;
++        LLAMA_LOG_INFO("%s: experimental MoE phase budgets: decode %zu MiB / ubatch 16, prefill %zu MiB / ubatch %u; "
++                "KV state remains in place, expert cache starts cold after each phase change\n", __func__,
++                moe_phase_decode_bytes / (1024u * 1024u), moe_phase_prefill_bytes / (1024u * 1024u),
++                moe_phase_prefill_ubatch);
++    }
++
+ 
+     // initialized later
+     cparams.pipeline_parallel = false;
+@@ -493,6 +517,11 @@
+         };
+ 
+         memory.reset(model.create_memory(params_mem, cparams));
++    }
++
++    // Size SWA/recurrent memory for the largest prefill, then reserve the small decode graph.
++    if (moe_phase_prefill_ubatch) {
++        cparams.n_ubatch = 16;
+     }
+ 
+     // init backends
+@@ -768,6 +797,51 @@
+     return (int) users.size();
+ }
+ 
++bool llama_context::moe_phase_select(uint32_t n_tokens) {
++    if (!moe_phase_prefill_ubatch) {
++        return true;
++    }
++    if (moe_phase_failed || !moe_cache) {
++        return false;
++    }
++
++    // Keep short prompts on the measured decode path. A large prompt can end with a small tail.
++    const bool prefill = n_tokens > 256;
++    if (prefill == moe_phase_prefill) {
++        return true;
++    }
++
++    const int64_t started = ggml_time_us();
++    synchronize();
++    auto host_registration = moe_cache->retain_host_registration();
++    moe_cache->finish_upload_events();
++    for (auto & res : gf_res_prev) {
++        res.reset();
++    }
++    gf_res_prev_active = nullptr;
++    gf_res_reserve.reset();
++    sched.reset();
++    moe_cache.reset();
++
++    cparams.moe_cache_size = prefill ? moe_phase_prefill_bytes : moe_phase_decode_bytes;
++    cparams.n_ubatch = prefill ? moe_phase_prefill_ubatch : 16;
++    sched_need_reserve = true;
++    try {
++        moe_cache = std::make_unique<llama_moe_cache>(model, false, backend_ptrs, backend_buft, cparams.moe_cache_size,
++                std::move(host_registration));
++        sched_reserve();
++    } catch (const std::exception & e) {
++        moe_phase_failed = true;
++        LLAMA_LOG_ERROR("%s: phase change failed; recreate the context before retrying: %s\n", __func__, e.what());
++        return false;
++    }
++    moe_phase_prefill = prefill;
++    LLAMA_LOG_INFO("%s: %s, cache %zu MiB, ubatch %u, transition %.3f ms, KV retained\n", __func__,
++            prefill ? "prefill" : "decode", cparams.moe_cache_size / (1024u * 1024u), cparams.n_ubatch,
++            (ggml_time_us() - started) / 1000.0);
++    return true;
++}
++
+ void llama_context::sched_new(size_t max_nodes, bool parallel) {
+     sched.reset(ggml_backend_sched_new(
+             backend_ptrs.data(), backend_buft.data(), backend_ptrs.size(), max_nodes, parallel, cparams.op_offload));
+@@ -1972,6 +2046,10 @@
+         synchronize();
+     }
+     embd_seq.clear();
++
++    if (!moe_phase_select(n_tokens_all)) {
++        return -2;
++    }
+ 
+     if (t_compute_start_us == 0) {
+         t_compute_start_us = ggml_time_us();
+--- a/src/llama-context.h
++++ b/src/llama-context.h
+@@ -309,6 +309,13 @@
+     llama_memory_ptr memory;
+     llama_moe_cache_ptr moe_cache;
+ 
++    bool moe_phase_select(uint32_t n_tokens);
++    size_t moe_phase_decode_bytes = 0;
++    size_t moe_phase_prefill_bytes = 0;
++    uint32_t moe_phase_prefill_ubatch = 0;
++    bool moe_phase_prefill = false;
++    bool moe_phase_failed = false;
++
+     // decode output (2-dimensional array: [n_outputs][n_vocab])
+     buffer_view<float> logits = {nullptr, 0};
+ 
+--- a/src/llama-moe-cache.cpp
++++ b/src/llama-moe-cache.cpp
+@@ -25,6 +25,24 @@
+ #include <stdexcept>
+ #include <unordered_map>
+ #include <vector>
++
++struct llama_moe_host_registration {
++    using release_fn = void (*)(void *);
++    release_fn release = nullptr;
++    std::vector<void *> pointers;
++    const llama_model * model;
++
++    explicit llama_moe_host_registration(const llama_model & model) : model(&model) {}
++    llama_moe_host_registration(const llama_moe_host_registration &) = delete;
++    llama_moe_host_registration & operator=(const llama_moe_host_registration &) = delete;
++
++    void clear() {
++        for (void * p : pointers) release(p);
++        pointers.clear();
++    }
++
++    ~llama_moe_host_registration() { clear(); }
++};
+ 
+ namespace {
+ 
+@@ -705,18 +723,7 @@
+     std::vector<int32_t> ids;
+     std::vector<moe_cache_slru::fill> fills;
+ 
+-    struct host_registration {
+-        using release_fn = void (*)(void *);
+-        release_fn release = nullptr;
+-        std::vector<void *> pointers;
+-
+-        void clear() {
+-            for (void * p : pointers) release(p);
+-            pointers.clear();
+-        }
+-
+-        ~host_registration() { clear(); }
+-    } registered_experts;
++    llama_moe_host_registration_ptr registered_experts;
+ 
+     // slot maps in host memory
+     ggml_context_ptr ctx_host;
+@@ -726,8 +733,11 @@
+     // views used by copy_experts
+     ggml_context_ptr ctx_views;
+ 
+-    impl(const llama_model & model, bool no_alloc, const std::vector<ggml_backend_t> & backends, const std::vector<ggml_backend_buffer_type_t> & bufts, size_t size) :
+-            n_expert_used(model.hparams.n_expert_used_max()), layers(model.layers.size()) {
++    impl(const llama_model & model, bool no_alloc, const std::vector<ggml_backend_t> & backends, const std::vector<ggml_backend_buffer_type_t> & bufts, size_t size,
++            llama_moe_host_registration_ptr host_registration) :
++            n_expert_used(model.hparams.n_expert_used_max()), layers(model.layers.size()),
++            registered_experts(std::move(host_registration)) {
++        GGML_ASSERT(!registered_experts || registered_experts->model == &model);
+         const char * trace_env = std::getenv("LLAMA_EXPERIMENTAL_MOE_TRACE");
+         trace.enabled = trace_env != nullptr && trace_env[0] == '1' && trace_env[1] == '\0';
+         trace.no_alloc = no_alloc;
+@@ -1002,7 +1012,10 @@
+             }
+         }
+         init_upload_staging(no_alloc);
+-        register_host_experts(no_alloc, model);
++        if (!registered_experts) {
++            registered_experts = std::make_shared<llama_moe_host_registration>(model);
++            register_host_experts(no_alloc, model);
++        }
+         log_trace_coverage();
+     }
+ 
+@@ -1060,31 +1073,31 @@
+             auto reg = ggml_backend_dev_backend_reg(ggml_backend_get_device(d.backend));
+             if (!reg) continue;
+             auto add = reinterpret_cast<register_fn>(ggml_backend_reg_get_proc_address(reg, "ggml_backend_register_host_buffer"));
+-            auto remove = reinterpret_cast<host_registration::release_fn>(ggml_backend_reg_get_proc_address(reg, "ggml_backend_unregister_host_buffer"));
++            auto remove = reinterpret_cast<llama_moe_host_registration::release_fn>(ggml_backend_reg_get_proc_address(reg, "ggml_backend_unregister_host_buffer"));
+             if (add && remove) {
+                 register_memory = add;
+-                registered_experts.release = remove;
++                registered_experts->release = remove;
+                 break;
+             }
+         }
+         if (!register_memory) return;
+-        registered_experts.pointers.reserve(merged.size());
++        registered_experts->pointers.reserve(merged.size());
+         size_t advised = 0;
+         // Keep expert mapping permissions for the model lifetime; other contexts may share these pages.
+         for (const auto & r : merged) {
+             void * ptr = reinterpret_cast<void *>(r.first);
+             const size_t bytes = r.second - r.first;
+             if (private_mapping && mprotect(ptr, bytes, PROT_READ | PROT_WRITE) != 0) {
+-                registered_experts.clear();
++                registered_experts->clear();
+                 LLAMA_LOG_WARN("llama_moe_cache: expert mprotect failed; using pageable experts\n");
+                 return;
+             }
+             if (!register_memory(ptr, bytes)) {
+-                registered_experts.clear();
++                registered_experts->clear();
+                 LLAMA_LOG_WARN("llama_moe_cache: host registration failed; using pageable experts\n");
+                 return;
+             }
+-            registered_experts.pointers.push_back(ptr);
++            registered_experts->pointers.push_back(ptr);
+             // Strata releases backing-file cache after creating its RAM arena.
+             // Here CUDA registration has completed the private-page pin first.
+             if (release_file_cache) advised += model.moe_release_file_cache(ptr, bytes);
+@@ -1155,7 +1168,7 @@
+             d.upload_completion.reset();
+             if (trace.enabled) trace.event_fence_closed++;
+         }
+-        registered_experts.clear();
++        registered_experts.reset();
+     }
+ 
+     ggml_tensor * get_slot_map(int32_t il, int64_t n_tokens, int64_t n_expert_used) const {
+@@ -1690,11 +1703,16 @@
+     }
+ };
+ 
+-llama_moe_cache::llama_moe_cache(const llama_model & model, bool no_alloc, const std::vector<ggml_backend_t> & backends, const std::vector<ggml_backend_buffer_type_t> & bufts, size_t size) :
+-    pimpl(new impl(model, no_alloc, backends, bufts, size)) {
++llama_moe_cache::llama_moe_cache(const llama_model & model, bool no_alloc, const std::vector<ggml_backend_t> & backends, const std::vector<ggml_backend_buffer_type_t> & bufts, size_t size,
++        llama_moe_host_registration_ptr host_registration) :
++    pimpl(new impl(model, no_alloc, backends, bufts, size, std::move(host_registration))) {
+ }
+ 
+ llama_moe_cache::~llama_moe_cache() = default;
++
++llama_moe_host_registration_ptr llama_moe_cache::retain_host_registration() const {
++    return pimpl->registered_experts;
++}
+ 
+ void llama_moe_cache::finish_upload_events() {
+     pimpl->finish_upload_events();
+--- a/src/llama-moe-cache.h
++++ b/src/llama-moe-cache.h
+@@ -7,18 +7,24 @@
+ #include <vector>
+ 
+ struct llama_model;
++struct llama_moe_host_registration;
++using llama_moe_host_registration_ptr = std::shared_ptr<llama_moe_host_registration>;
+ 
+ // keeps recently and repeatedly used experts of host-resident MoE layers in a device buffer
+ // each layer has a slot map in host memory: when the scheduler copies it to the device, the copy callback uploads the missing experts
+ class llama_moe_cache {
+ public:
+     // backends are all the backends of the context, each GPU gets its own cache of the given size for the layers assigned to it
+-    llama_moe_cache(const llama_model & model, bool no_alloc, const std::vector<ggml_backend_t> & backends, const std::vector<ggml_backend_buffer_type_t> & bufts, size_t size);
++    llama_moe_cache(const llama_model & model, bool no_alloc, const std::vector<ggml_backend_t> & backends, const std::vector<ggml_backend_buffer_type_t> & bufts, size_t size,
++            llama_moe_host_registration_ptr host_registration = {});
+     ~llama_moe_cache();
+ 
+     // P14B: context MUST release optional upload events while its GPU backends
+     // are alive, after the scheduler's final synchronize(). Idempotent.
+     void finish_upload_events();
++
++    // Keep model pages pinned while the same context replaces its expert cache.
++    llama_moe_host_registration_ptr retain_host_registration() const;
+ 
+     // the device that caches layer il
+     ggml_backend_t backend(int32_t il) const;

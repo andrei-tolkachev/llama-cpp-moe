@@ -1,0 +1,108 @@
+diff --git a/src/models/deepseek41.cpp b/src/models/deepseek41.cpp
+--- a/src/models/deepseek41.cpp
++++ b/src/models/deepseek41.cpp
+@@ -2,6 +2,7 @@
+ #include "llama-impl.h"
+ 
+ #include "llama-kv-cache-dsv4.h"
++#include "llama-experimental/graph_stage.hpp"
+ 
+ #include <algorithm>
+ #include <cinttypes>
+@@ -292,6 +293,8 @@
+     bool can_reuse(const llm_graph_params & params) override;
+ 
+     std::vector<ggml_tensor *> engram_ids;
++    std::vector<ggml_tensor *> engram_stage_tables;
++    std::unique_ptr<llama_exp::engram_graph_stage> engram_stage;
+     ggml_tensor * engram_keep = nullptr;    // 0 for embedding (image) tokens; only in mixed ubatches
+     ggml_tensor * cand_pin = nullptr;
+     bool cand_csa = false;
+@@ -329,13 +332,13 @@
+         std::vector<int32_t> all_local;
+         std::vector<int32_t> & all = use_scratch ? all_scratch : all_local;
+         all.clear();
++        const bool prefetch = !engram_stage && model.can_prefetch.count(model.per_layer_tok_embd);
+-        const bool prefetch = model.can_prefetch.count(model.per_layer_tok_embd);
+         if (use_scratch && prefetch) {
+             all.reserve((size_t) ubatch->n_tokens*n_heads*engram_ids.size());
+         }
+         for (size_t e = 0; e < engram_ids.size(); ++e) {
+             model.engram_hash((int) e, *ubatch, prev, ids[e]);
++            if (prefetch) {
+-            if (!use_scratch || prefetch) {
+                 all.insert(all.end(), ids[e].begin(), ids[e].end());
+             }
+         }
+@@ -343,6 +346,17 @@
+             llama_prefetch_rows(model.per_layer_tok_embd, all.data(), all.size());
+         }
+         for (size_t e = 0; e < engram_ids.size(); ++e) {
++            if (engram_stage) {
++                if (e >= engram_stage_tables.size() || !engram_stage_tables[e]->buffer ||
++                        !engram_stage->stage(ids[e].data(), ids[e].size()) ||
++                        engram_stage->bytes() != ggml_nbytes(engram_stage_tables[e])) {
++                    throw std::runtime_error("DeepSeek-V4.1 Engram stage failed: refusing to evaluate partial rows");
++                }
++                ggml_backend_tensor_set(engram_stage_tables[e], engram_stage->data(), 0, engram_stage->bytes());
++                for (size_t i = 0; i < ids[e].size(); ++i) {
++                    ids[e][i] = (int32_t) i;
++                }
++            }
+             if (engram_ids[e]->buffer) {
+                 ggml_backend_tensor_set(engram_ids[e], ids[e].data(), 0, ids[e].size()*sizeof(int32_t));
+             }
+@@ -383,6 +397,10 @@
+     for (auto * t : engram_ids) {
+         res &= t->ne[0] == (int64_t) model.hparams.ple_n_heads*params.ubatch.n_tokens;
+     }
++    res &= engram_stage_tables.empty() == (engram_stage == nullptr);
++    for (auto * t : engram_stage_tables) {
++        res &= t->ne[1] == (int64_t) model.hparams.ple_n_heads*params.ubatch.n_tokens;
++    }
+     res &= (engram_keep != nullptr) == (!engram_ids.empty() && params.ubatch.embd != nullptr);
+     if (engram_keep) {
+         res &= engram_keep->ne[2] == (int64_t) params.ubatch.n_tokens;
+@@ -811,6 +829,25 @@
+     ggml_build_forward_expand(gf, inp_dsv4->get_raw()->self_kq_mask);
+ 
+     auto inp41 = std::make_unique<llm_graph_input_dsv41>(model, inp_dsv4->mctx);
++    // Only DeepSeek-V4.1's known Q6_K Engram layout is staged for now. The
++    // original GGML_GET_ROWS source remains the default and oversized fallback.
++    const auto * engram_table = model.per_layer_tok_embd;
++    if (llama_exp::engram_graph_stage::enabled() && ubatch.token &&
++            hparams.ple_n_heads > 0 && hparams.ple_n_modules > 0 &&
++            engram_table && engram_table->type == GGML_TYPE_Q6_K &&
++            engram_table->ne[0] == 256 && engram_table->ne[1] > 0 &&
++            engram_table->buffer && engram_table->data &&
++            ggml_backend_buffer_is_host(engram_table->buffer)) {
++        const size_t row_bytes = ggml_row_size(engram_table->type, engram_table->ne[0]);
++        const size_t table_bytes = ggml_nbytes(engram_table);
++        const uint64_t rows_per_layer = (uint64_t) hparams.ple_n_heads*n_tokens;
++        if (llama_exp::engram_graph_stage::eligible((uint64_t) engram_table->ne[1],
++                row_bytes, engram_table->nb[1], table_bytes, rows_per_layer, hparams.ple_n_modules)) {
++            llama_exp::mapped_rows source(engram_table->data, table_bytes, engram_table->nb[1], row_bytes);
++            inp41->engram_stage = std::make_unique<llama_exp::engram_graph_stage>(source,
++                    (uint64_t) engram_table->ne[1]);
++        }
++    }
+     // embedding input has no token ids: it skips Engram, like the reference's masked (image) positions
+     // the gathers go right after the token embeddings, so they share the first graph split (the table stays on the host)
+     std::vector<ggml_tensor *> engram_rows;
+@@ -823,7 +860,15 @@
+         ggml_set_input(ids);
+         inp41->engram_ids.push_back(ids);
+ 
++        ggml_tensor * table = model.per_layer_tok_embd;
++        if (inp41->engram_stage) {
++            table = ggml_new_tensor_2d(ctx0, model.per_layer_tok_embd->type,
++                    model.per_layer_tok_embd->ne[0], (int64_t) hparams.ple_n_heads*n_tokens);
++            ggml_set_name(table, ("engram_stage-" + std::to_string(il)).c_str());
++            ggml_set_input(table);
++            inp41->engram_stage_tables.push_back(table);
++        }
++        ggml_tensor * rows = ggml_get_rows(ctx0, table, ids);
+-        ggml_tensor * rows = ggml_get_rows(ctx0, model.per_layer_tok_embd, ids);
+         rows = ggml_reshape_2d(ctx0, rows, hparams.ple_head_dim*hparams.ple_n_heads, n_tokens);
+         cb(rows, "engram_rows", il);
+         ggml_build_forward_expand(gf, rows);

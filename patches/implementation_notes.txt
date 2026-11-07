@@ -1,0 +1,171 @@
+SOURCE R17 / P16A
+0016 extends only common/speculative.cpp and installs a pinned standalone
+common/llama-experimental/mtp_verify_window.hpp. Opt-in single-MTP path:
+compact host hidden-row prefix and preserve true latest pending boundary.
+No KV/recurrent state rewrite, no new sampling, no kernel math changes.
+P16B/P17 remain required for actual rejection/cancel/model correctness.
+
+SOURCE R15 / P15B
+Patch 0014 applies after 0013 to pinned ggml/src/ggml-cuda/mmq.cu.
+Host MMQ MoE J+threads exact memoization for quantized Q3/Q4/IQ3/IQ4;
+strict LLAMA_EXPERIMENTAL_CUDA_MMQ_TILE_CACHE=1 flag, default OFF.
+No CUDA kernel edit; see docs/P15B_CUDA_MMQ_MOE_TILE_CACHE.txt.
+
+===== PRIOR IMPLEMENTATION NOTES =====
+SOURCE R13 / P14B
+0012: Event ownership/lifetime, ggml_backend_event_{new,record,synchronize,free}
+when supported; exact-context destructor hook after P03. New header installed
+via strict additional_files. Flags OFF by default; no cudaStreamCreate.
+Previous 11 patches are byte-identical to R12; host-only tests, no true GPU.
+
+PATCH 0001: OPT-IN MoE CACHE OBSERVABILITY
+
+Основа: ggml-org/llama.cpp, commit
+dde879bc4f954b809892fd0d660515f42536394a.
+Изменяется только src/llama-moe-cache.cpp: 87 добавленных строк, удалений нет.
+Research audit snapshot не изменён. Preimage взят из точных Git blob bytes
+validation/upstream/src/llama-moe-cache.cpp; нормализованный audit snapshot
+содержал лишний завершающий newline и не используется как Git preimage.
+
+Включение
+---------
+LLAMA_EXPERIMENTAL_MOE_TRACE=1 при создании отдельного тестового контекста.
+Только точная строка "1" включает диагностику; unset, "0" и другие значения
+оставляют её выключенной. Переменная читается один раз в конструкторе.
+Она НЕ включает MoE cache, не меняет его бюджет и не меняет placement.
+Если cache context не создаётся, новых строк диагностики не будет.
+
+Объём вывода
+------------
+Одна строка coverage при успешном создании cache и две итоговые строки при
+его обычном уничтожении. Нет per-token/per-layer-update логов. Это агрегат
+за жизнь cache context, не автоматически за один запрос. Ключ cache=%p
+различает одновременно существующие контексты; адрес может переиспользоваться
+после уничтожения. no_alloc=1 помечает контексты оценки памяти без allocations:
+их нельзя суммировать с реальным inference. При crash/SIGKILL итог не гарантирован.
+Штатные строки log_stats сохранены в прежнем виде.
+
+Coverage
+--------
+model_layers: всего слоёв модели.
+expert_layers: слои хотя бы с одним распознанным expert tensor.
+all_host_expert_layers: слои, все expert tensors которых удовлетворяют
+существующему llama_moe_cache_is_host_weight.
+host_layers_without_matching_gpu: из этих host-слоёв те, для которых
+model.dev_layer не совпадает с доступным GPU/IGPU backend данного cache.
+eligible_layers: host-слои с совпавшим GPU/IGPU backend до распределения бюджета.
+configured_cache_layers: слои, которым после распределения бюджета создан
+slot map. Это покрытие слоёв, а не число резидентных экспертов или hit rate.
+
+Счётчики
+--------
+cache_update_calls: успешные вызовы copy для slot map данного cache.
+unique_expert_hits/misses: существующие stats_small + stats_large; distinct
+expert IDs внутри одного layer update, затем сумма по updates. Это не число
+выданных токенов и не глобальная cardinality экспертов за весь запуск.
+hit_rate_pct равен 0 при отсутствии requests; при calls=0 это отсутствие
+наблюдений, не измеренный нулевой hit rate.
+expert_upload_bytes_requested: прежний st.bytes для загрузки miss payloads.
+id_readback_bytes_requested: сумма размеров выбранных IDs, запрошенных get_async.
+slot_map_upload_bytes_requested: сумма размеров slot maps, переданных set_async.
+Все bytes являются логическими размерами аргументов API, не физическими
+PCIe counters. D2D copy_experts и обычный bypass больших batches сюда не входят;
+их существующая статистика не изменена. Никаких дополнительных IDs или весов
+диагностика не считывает.
+
+Времена
+-------
+Четыре ggml_time_us() только при enabled=1 на успешный cache update.
+id_readback_and_existing_sync: host interval от вызова get_async до возврата
+УЖЕ СУЩЕСТВУЮЩЕГО backend synchronize. Он включает ожидание ранее поставленной
+GPU работы; его нельзя объявлять чистой стоимостью пересылки ID через PCIe.
+slru_plan: host interval существующего SLRU plan и минимального control flow.
+upload_enqueue: host interval существующих upload loops, обновления штатной
+статистики и enqueue slot map. Async API может блокироваться на staging или
+page faults. Этот интервал не является временем завершения GPU/DMA.
+В итоговой строке явно указаны scope=cache_lifetime и gpu_durations=not_measured.
+Эти три интервала не охватывают всё время inference и не являются токен/с.
+
+Неизменность пути
+----------------
+Не добавлены synchronize, events, CUDA streams или backend operations.
+Все прежние backend API calls остались в прежнем порядке.
+SLRU policy, routing, экспертные bytes, dispatch, graph, logits и публичные
+headers/API/ABI не меняются. Новое состояние находится только в private impl.
+При выключенной диагностике нет новых clock calls, счётчиков hot path или
+experimental log output. Дополнительные условные проверки и размер impl есть;
+нулевой overhead не заявляется ни для disabled, ни для enabled режима.
+
+Проверки здесь
+--------------
+PASS: git apply --check --whitespace=error на точной baseline-копии.
+PASS: результат git apply побайтно совпал с рабочей копией.
+PASS: reverse --check и reverse вернули исходные bytes baseline.
+PASS: последовательность имён всех backend API calls неизменна;
+существующий ggml_backend_synchronize(backend) остался ровно один.
+PASS: SLRU, get_slot_map, get_experts, copy_experts и старый log_stats
+побайтно совпадают с baseline. Patch только добавляет строки.
+PASS после сборки комплекта: baseline и candidate translation unit
+скомпилированы GCC 13.3.0 в object files с -O2 -Wall -Wextra -Werror,
+с точными реальными upstream headers. См. validation/translation_unit_compile.json.
+Полная сборка/linking, CUDA build, inference, numerical parity и overhead
+на RTX 5090 НЕ проверены.
+
+Необходимые проверки на целевой машине
+------------------------------------
+1. Собрать отдельную baseline и patched сборку с одинаковыми flags/libraries.
+2. В одном и том же сценарии проверить unset/0/1, успешное создание/unload,
+   no_alloc probes, zero cache updates и mixed CPU/GPU assignment.
+3. Сравнить greedy output/logits и существующие stats на фиксированных inputs;
+   отдельно проверить hits/misses и большие batches с cache bypass.
+4. Измерить trace-off/on overhead повторными wall-time runs; GPU timing/PCIe
+   подтверждать отдельной profiler трассой. Не объявлять host sync interval
+   полностью устранимой потерей до анализа критического пути.
+
+Перенос на новые llama.cpp
+-------------------------
+Patch включает Git blob IDs и обычный contextual diff. Сначала dry-run на
+новом commit; чистый apply ещё не доказывает semantic compatibility. При
+изменении cache lifetime, eligibility, copy callback, stats или async ordering
+нужен повторный review соответствующих участков. Не применять с fuzz/force,
+не переносить механически номера строк. Откат: reverse patch либо выключение
+env для телеметрии; production installation этим пакетом не заменяется.
+
+Идентичность
+------------
+Baseline file SHA-256:
+2c8dd1c781a7e63c4a0f81547a0ff8f2af427749b59d2c0c8dff19f560446d70
+Patched file SHA-256:
+3e8e6d02fce1ef8c63b47d94bebcacc2cbb69547818c8959de1b062d584759ac
+Patch SHA-256:
+e14ecd7465af8a856a05146745b74bc89896381b1586d1155f588ff7987b41db
+
+P06 — src/llama-impl.cpp
+  optional sorted unique IDs -> byte-contiguous ranges before unchanged
+  llama_prefetch(). Exact source is from base commit; original byte hash and
+  modified byte hash in manifest. This is a prefetch planning optimization,
+  not async storage or Engram cache. Next source gate: true upstream compile.
+
+R08 P10 adds zero source-tree patch files: the P09B source diff already calls
+an installed vendor header. Only hashed vendor module revision/2 dependency
+headers plus strict installation tools and host fixtures are updated. The
+exact pinned source SHA-256 chain is still the R07 chain.
+
+SOURCE R11 / P13 — model-owned Engram caching
+00010: 0010-engram-model-async-cache.patch (10th patch; filename starts 0010).
+The original nine patch files remain byte-identical to R10.
+DeepSeek 4.1 source path now conditionally builds a model-owned row cache,
+shares it between graph instances, and enqueues current batch's exact hash
+row IDs for bounded async reading. Model destructor closes cache and joins
+worker BEFORE the base model releases lazy tensor mappings. See P13 docs.
+No full engine/CUDA verification or speed claim.
+
+R16 P15C: apply 0015 after 0014. Install new approved header
+modules/cuda/mmq_select_probe.hpp to ggml/src/ggml-cuda/llama-experimental/
+mmq_select_probe.hpp. Flag LLAMA_EXPERIMENTAL_CUDA_MMQ_PROFILE=1, default OFF.
+HOST selector only, NO GPU timing, 15 patches cumulative.
+
+P16B / R18:
+- Apply 0017 after 0016. Installs common/llama-experimental/mtp_rewind_guard.hpp.
+- Exposes checkpoint_rewind/discard_pending common API, server checkpoint/release hooks.
+- Exact opt-in flag LLAMA_EXPERIMENTAL_MTP_REWIND_GUARD=1; no complete CUDA/GGUF claim.

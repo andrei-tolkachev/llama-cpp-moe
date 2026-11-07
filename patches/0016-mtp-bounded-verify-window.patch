@@ -1,0 +1,67 @@
+diff --git a/common/speculative.cpp b/common/speculative.cpp
+--- a/common/speculative.cpp
++++ b/common/speculative.cpp
+@@ -1,4 +1,5 @@
+ #include "speculative.h"
++#include "llama-experimental/mtp_verify_window.hpp"
+ 
+ #include "common.h"
+ #include "ggml.h"
+@@ -1507,5 +1508,6 @@
+     int32_t n_mtp_layers  = 1;
+     bool    is_mem_shared = false;   // gemma4
+     bool    chain_heads   = false;   // derived in the ctor: n_mtp_layers > 1 && !is_mem_shared
++    bool    bounded_verify_rows = false; // only when MTP is the sole speculative implementation
+ 
+     // Per-sequence cross-batch carryover: pair (h_p, x_{p+1}) at MTP pos p+1.
+@@ -1579,6 +1581,10 @@
+ 
+         is_mem_shared = llama_get_ctx_other(ctx_dft) == ctx_tgt;
+         chain_heads   = n_mtp_layers > 1 && !is_mem_shared;
++        // An n-gram or another draft implementation may accept more than this
++        // MTP head's n_max. Do not compact verification rows in that case.
++        bounded_verify_rows = llama_exp::mtp_verify_window_enabled() &&
++                params.types.size() == 1 && params.types[0] == COMMON_SPECULATIVE_TYPE_DRAFT_MTP;
+ 
+         if (chain_heads) {
+             this->params.n_max = std::min(this->params.n_max, n_mtp_layers);
+@@ -1733,16 +1739,21 @@
+             }
+ 
+             const int32_t n_rows = i_batch_end[seq_id] - i_batch_beg[seq_id] + 1;
++            const llama_exp::mtp_verify_window window((size_t) n_rows, params.n_max, bounded_verify_rows);
+             verify_h_rows[seq_id] = n_rows;
+-            verify_h[seq_id].resize((size_t) n_rows * n_embd);
++            verify_h[seq_id].resize(window.retained_rows * (size_t) n_embd);
+ 
+-            for (int32_t i = 0; i < n_rows; ++i) {
+-                const float * h = llama_get_embeddings_nextn_ith(ctx_tgt, i_batch_beg[seq_id] + i);
+-                std::memcpy(verify_h[seq_id].data() + (size_t) i * n_embd, h, row_bytes);
++            for (size_t i = 0; i < window.retained_rows; ++i) {
++                const float * h = llama_get_embeddings_nextn_ith(ctx_tgt, i_batch_beg[seq_id] + (int32_t) i);
++                std::memcpy(verify_h[seq_id].data() + i * n_embd, h, row_bytes);
+             }
+ 
+-            std::memcpy(pending_h[seq_id].data(),
+-                    verify_h[seq_id].data() + (size_t) (n_rows - 1) * n_embd, row_bytes);
++            // Next process() needs the true last row, even when the retained
++            // verification prefix is shorter than a large prefill batch.
++            const float * h_last = window.retained_rows == (size_t) n_rows
++                    ? verify_h[seq_id].data() + (size_t) (n_rows - 1) * n_embd
++                    : llama_get_embeddings_nextn_ith(ctx_tgt, i_batch_end[seq_id]);
++            std::memcpy(pending_h[seq_id].data(), h_last, row_bytes);
+         }
+ 
+         return true;
+@@ -1924,8 +1935,9 @@
+             return;
+         }
+ 
+-        const int32_t i_h = std::min<int32_t>(n_accepted, n_rows - 1);
++        const llama_exp::mtp_verify_window window((size_t) n_rows, params.n_max, bounded_verify_rows);
++        const size_t i_h = window.accepted_row(n_accepted);
+         const size_t row_bytes = (size_t) n_embd * sizeof(float);
+-        std::memcpy(pending_h[seq_id].data(), verify_h[seq_id].data() + (size_t) i_h * n_embd, row_bytes);
++        std::memcpy(pending_h[seq_id].data(), verify_h[seq_id].data() + i_h * n_embd, row_bytes);
+     }
+ };

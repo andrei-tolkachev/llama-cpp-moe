@@ -1,0 +1,147 @@
+--- a/src/llama-cparams.h
++++ b/src/llama-cparams.h
+@@ -48,6 +48,11 @@
+     bool fused_dsv4_hc_comb;
+     bool fused_dsv4_hc_post;
+     bool auto_fhc;
++
++    // Empty preserves the legacy global HC_POST decision. Otherwise, each entry
++    // is an intended CUDA backend, or nullptr for the unfused layer fallback.
++    // Context-owned backend pointers; internal only, never serialized.
++    std::vector<ggml_backend_t> dsv4_hc_post_backends;
+     bool fused_top_k_mask;   // use fused top-k sparse attention mask
+     bool auto_ftkm;
+     bool no_perf;
+--- a/src/llama-context.cpp
++++ b/src/llama-context.cpp
+@@ -557,6 +557,47 @@
+ 
+         if (cparams.pipeline_parallel) {
+             LLAMA_LOG_INFO("%s: pipeline parallelism enabled\n", __func__);
++        }
++
++        // Opt in only for the CUDA HC_POST contract checked by the DeepSeek
++        // graph builder. Keep the legacy path for other models and layouts.
++        const char * hc_post_layers_env = getenv("LLAMA_EXPERIMENTAL_DSV4_HC_POST_LAYERS");
++        if (hc_post_layers_env && strcmp(hc_post_layers_env, "1") == 0) {
++            if ((model.arch == LLM_ARCH_DEEPSEEK4 || model.arch == LLM_ARCH_DEEPSEEK41) &&
++                    cparams.ctx_type == LLAMA_CONTEXT_TYPE_DEFAULT &&
++                    cparams.fused_dsv4_hc_post && cparams.op_offload &&
++                    model.devices.size() == 1 && !model.devices[0].is_meta &&
++                    (model.split_mode() == LLAMA_SPLIT_MODE_NONE || model.split_mode() == LLAMA_SPLIT_MODE_LAYER)) {
++                ggml_backend_dev_t dev = model.devices[0].dev;
++                ggml_backend_reg_t reg = ggml_backend_dev_backend_reg(dev);
++                if (ggml_backend_dev_type(dev) == GGML_BACKEND_DEVICE_TYPE_GPU && reg &&
++                        strcmp(ggml_backend_reg_name(reg), "CUDA") == 0) {
++                    for (ggml_backend_t backend : backend_ptrs) {
++                        if (ggml_backend_get_device(backend) != dev) {
++                            continue;
++                        }
++                        cparams.dsv4_hc_post_backends.assign(hparams.n_layer(), nullptr);
++                        size_t n_eligible = 0;
++                        for (uint32_t il = 0; il < hparams.n_layer(); ++il) {
++                            if (model.dev_layer(il) == dev) {
++                                cparams.dsv4_hc_post_backends[il] = backend;
++                                ++n_eligible;
++                            }
++                        }
++                        if (n_eligible == 0) {
++                            cparams.dsv4_hc_post_backends.clear();
++                        } else {
++                            LLAMA_LOG_INFO("%s: experimental HC_POST layer policy: %zu CUDA layers; "
++                                    "remaining layers use the unfused path (shape/support checked per graph)\n",
++                                    __func__, n_eligible);
++                        }
++                        break;
++                    }
++                }
++            }
++            if (cparams.dsv4_hc_post_backends.empty()) {
++                LLAMA_LOG_INFO("%s: experimental HC_POST layer policy inactive for this context\n", __func__);
++            }
+         }
+ 
+         if (cparams.moe_cache_size > 0) {
+--- a/src/llama-graph.h
++++ b/src/llama-graph.h
+@@ -894,6 +894,12 @@
+ 
+         // TODO: https://github.com/ggml-org/llama.cpp/pull/24340#discussion_r3448035248
+         if (cparams.nextn_layer_offset != other.cparams.nextn_layer_offset) {
++            return false;
++        }
++
++        if (cparams.dsv4_hc_post_backends != other.cparams.dsv4_hc_post_backends ||
++                (!cparams.dsv4_hc_post_backends.empty() &&
++                 cparams.fused_dsv4_hc_post != other.cparams.fused_dsv4_hc_post)) {
+             return false;
+         }
+ 
+--- a/src/models/deepseek4.cpp
++++ b/src/models/deepseek4.cpp
+@@ -410,6 +410,36 @@
+     return { pre, post, comb };
+ }
+ 
++// The CUDA kernel accepts strided F32 inputs, with strides measured in floats.
++// Check the actual graph inputs, including prefill batches, before constructing
++// the op; a successful one-token reserve probe alone is not sufficient.
++static bool dsv4_hc_post_layer_layout(
++        const ggml_tensor * x,
++        const ggml_tensor * residual,
++        const ggml_tensor * post,
++        const ggml_tensor * comb) {
++    if (!x || !residual || !post || !comb) {
++        return false;
++    }
++    for (const ggml_tensor * t : {x, residual, post, comb}) {
++        if (t->type != GGML_TYPE_F32 || t->view_offs % sizeof(float) != 0) {
++            return false;
++        }
++        for (int d = 0; d < GGML_MAX_DIMS; ++d) {
++            if (t->ne[d] <= 0 || t->nb[d] % sizeof(float) != 0) {
++                return false;
++            }
++        }
++    }
++
++    const int64_t hc = 4;
++    const int64_t nt = x->ne[1];
++    return x->ne[2] == 1 && x->ne[3] == 1 &&
++        residual->ne[0] == x->ne[0] && residual->ne[1] == hc && residual->ne[2] == nt && residual->ne[3] == 1 &&
++        post->ne[0] == hc && post->ne[1] == nt && post->ne[2] == 1 && post->ne[3] == 1 &&
++        comb->ne[0] == hc && comb->ne[1] == hc && comb->ne[2] == nt && comb->ne[3] == 1;
++}
++
+ ggml_tensor * llama_model_deepseek4::graph::build_hc_post(
+         ggml_tensor * x,
+         ggml_tensor * residual,
+@@ -420,9 +450,25 @@
+     GGML_ASSERT(residual->ne[1] == hparams.dsv4_hc_mult);
+ 
+     if (cparams.fused_dsv4_hc_post) {
+-        ggml_tensor * result = ggml_dsv4_hc_post(ctx0, x, residual, post, comb);
+-        res->add_fused_node({LLM_FUSED_OP_DSV4_HC_POST, result, il});
+-        return result;
++        if (cparams.dsv4_hc_post_backends.empty()) {
++            // Preserve the original path when the experiment is not active.
++            ggml_tensor * result = ggml_dsv4_hc_post(ctx0, x, residual, post, comb);
++            res->add_fused_node({LLM_FUSED_OP_DSV4_HC_POST, result, il});
++            return result;
++        }
++        if (il >= 0 && size_t(il) < cparams.dsv4_hc_post_backends.size()) {
++            ggml_backend_t backend = cparams.dsv4_hc_post_backends[il];
++            if (backend && dsv4_hc_post_layer_layout(x, residual, post, comb)) {
++                ggml_tensor * result = ggml_dsv4_hc_post(ctx0, x, residual, post, comb);
++                if (ggml_backend_supports_op(backend, result)) {
++                    // Avoid a CPU layer disabling HC_POST for every GPU layer,
++                    // or a greedy placement moving this node to another device.
++                    ggml_backend_sched_set_tensor_backend(sched, result, backend);
++                    res->add_fused_node({LLM_FUSED_OP_DSV4_HC_POST, result, il});
++                    return result;
++                }
++            }
++        }
+     }
+ 
+     const int64_t hc = hparams.dsv4_hc_mult;

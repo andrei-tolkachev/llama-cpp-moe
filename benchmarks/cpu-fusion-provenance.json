@@ -1,0 +1,10 @@
+{
+  "donor_commit": "99866a47a2b8a21b131aad162a584ee9da92f8f0",
+  "donor": "Strata native_gu_rows; adapted to GGML vec_dot and original down projection",
+  "historical_original_combined_patch_sha256": "af2bc19a349aa7c3f153a169b1477dd70aa7ad3d471ae174a269ddf0e3b734cc",
+  "packaging": "Original combined patch is split into graph patch and an exact header asset for the existing bounded overlay format. Final source hashes must match the checkpoint.",
+  "historical_numerical_cases": 1392,
+  "historical_float_comparisons": 5554176,
+  "flag": "LLAMA_EXPERIMENTAL_CPU_FUSED_GATE_UP",
+  "default": "off"
+}

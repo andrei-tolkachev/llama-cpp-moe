@@ -1,0 +1,8 @@
+{
+  "scope": "Independent off/on/on/off native Strata runs; same original GGUF; output IDs differ",
+  "async_off_warm_mean": 116.99056213065415,
+  "async_on_warm_mean": 121.94250810307389,
+  "causal_percent_gain_supported": false,
+  "speculative_tokens": 0,
+  "note": "Even the disabled asynchronous CPU mode exceeded100 tok/s; async alone does not explain the llama.cpp gap."
+}

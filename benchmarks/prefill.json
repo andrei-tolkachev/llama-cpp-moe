@@ -1,0 +1,324 @@
+{
+  "scope": "Single-start prefill comparisons; no prefill ABBA; no broad quality-parity claim",
+  "hardware": "RTX 5090, Core i9-13900K, 128 GiB RAM",
+  "context_capacity": 131072,
+  "kv": "f16",
+  "sampling": {
+    "temperature": 0,
+    "seed": 42,
+    "cache_prompt": false,
+    "native_eos": true
+  },
+  "runs": {
+    "qwen128-prefill4k-ub16": {
+      "status": "COMPLETE",
+      "rows": [
+        {
+          "prompt_tokens": 4096,
+          "actual_filled": true,
+          "retrieval_passed": true,
+          "timings": {
+            "cache_n": 0,
+            "prompt_n": 4096,
+            "prompt_ms": 49134.077,
+            "prompt_per_token_ms": 11.995624267578124,
+            "prompt_per_second": 83.36373144854232,
+            "predicted_n": 40,
+            "predicted_ms": 1623.542,
+            "predicted_per_token_ms": 41.62928205128205,
+            "predicted_per_second": 24.02155287636538
+          },
+          "request_s": 50.75968356700014,
+          "prompt_ids_file_sha256": "922270b72c410f93c2ecca07f29ace5e964fe5415866a41ea9e91434c91ec8d5",
+          "output_ids_sha256": "e1f93d73b1fca2d87a5aacdf1a921e55325ad955d8b69e05d9b0e2f738b20a8f",
+          "output_content": "{\"ORION_A\": 741926, \"ORION_B\": 805137, \"ORION_C\": 269480}"
+        }
+      ],
+      "post_short_decode_tps": [
+        46.29335463432788,
+        71.50548489131167,
+        74.71991021890003,
+        75.62335889897135
+      ],
+      "quality": {
+        "passed": 0,
+        "total": 0
+      },
+      "capacity": 131072,
+      "cache_mib": 20992,
+      "batch": 128,
+      "ubatch": 16
+    },
+    "qwen-phase4k-v4": {
+      "status": "COMPLETE",
+      "rows": [
+        {
+          "prompt_tokens": 4096,
+          "actual_filled": true,
+          "retrieval_passed": true,
+          "timings": {
+            "cache_n": 0,
+            "prompt_n": 4096,
+            "prompt_ms": 4970.17,
+            "prompt_per_token_ms": 1.21342041015625,
+            "prompt_per_second": 824.1166801135574,
+            "predicted_n": 40,
+            "predicted_ms": 1286.628,
+            "predicted_per_token_ms": 32.99046153846154,
+            "predicted_per_second": 30.311791753327302
+          },
+          "request_s": 6.258798617998764,
+          "prompt_ids_file_sha256": "922270b72c410f93c2ecca07f29ace5e964fe5415866a41ea9e91434c91ec8d5",
+          "output_ids_sha256": "e1f93d73b1fca2d87a5aacdf1a921e55325ad955d8b69e05d9b0e2f738b20a8f",
+          "output_content": "{\"ORION_A\": 741926, \"ORION_B\": 805137, \"ORION_C\": 269480}"
+        }
+      ],
+      "post_short_decode_tps": [
+        61.15484815251203,
+        76.61624216260913,
+        77.80137583342817,
+        76.9559253799133
+      ],
+      "quality": {
+        "passed": 11,
+        "total": 12
+      },
+      "capacity": 131072,
+      "cache_mib": 20992,
+      "batch": 4096,
+      "ubatch": 4096
+    },
+    "qwen32k-baseline": {
+      "status": "COMPLETE",
+      "rows": [
+        {
+          "prompt_tokens": 32768,
+          "actual_filled": true,
+          "retrieval_passed": true,
+          "timings": {
+            "cache_n": 0,
+            "prompt_n": 32768,
+            "prompt_ms": 418556.546,
+            "prompt_per_token_ms": 12.773332092285155,
+            "prompt_per_second": 78.28810781518634,
+            "predicted_n": 512,
+            "predicted_ms": 12034.946,
+            "predicted_per_token_ms": 23.551753424657534,
+            "predicted_per_second": 42.45968365790756
+          },
+          "request_s": 430.60257072700006,
+          "prompt_ids_file_sha256": "d607ae256e1cfa528a7dd81c50260fe88f137ce5693d0578b6a74fb6d651c764",
+          "output_ids_sha256": "899c8b53bb9f8135dbe81dec7dc4f1b8a9dc3a2f6af946b05334229d8fb67455",
+          "output_content": "{\"ORION_A\": 741926, \"ORION_B\": 805137, \"ORION_C\": 269480}\n\n1. **CPU Gate-Up Kernel Initialization**: The `cpu_gate_up_clamp` function initializes by retrieving source tensors (`x`, `ids`, `gate`, `up`) and their type traits, establishing the context for a fused gate-up activation operation on the CPU.\n2. **Active Row Counting**: The kernel iterates through the `ids` tensor to count active rows (where ID >= 0), determining the total workload distribution across threads before processing begins.\n3. **Thread Workload Partitioning**: The total active work is divided among `nth` threads using integer arithmetic (`first` and `last` indices), ensuring balanced load distribution for parallel execution.\n4. **Strided Memory Access for IDs**: The code accesses `ids` data using pointer arithmetic based on `nb[0]` (byte stride), allowing correct reading of potentially non-contiguous or strided integer ID arrays.\n5. **Zero-Fill for Inactive Rows**: For rows marked as inactive (ID == -1), the kernel explicitly fills the output buffer with zeros using `std::fill_n`, but only if the current thread owns that specific row index modulo `nth`.\n6. **Quantized Weight Access**: The kernel accesses `gate` and `up` weights using type-specific traits (`gt`, `ut`), supporting various quantization formats (e.g., Q4_K, Q8_0) via `vec_dot` operations.\n7. **Vector Dot Product Execution**: For each active row, `vec_dot` is called twice: once for the gate projection and once for the up projection, computing the dot product between the input `x` and the respective weight matrices.\n8. **Clamping Mechanism**: The computed gate value `g` is clamped to a maximum `limit`, while the up value `u` is clamped to the range `[-limit, limit]`, preventing numerical overflow or instability in the activation function.\n9. **SwiGLU Activation Calculation**: The final output is computed using the SwiGLU formula: `g / (1.0f + expf(-g)) * u`, combining the gated linear unit with the up-projection.\n10. **Output Buffer Writing**: The result is written to the destination tensor `dst` at"
+        }
+      ],
+      "post_short_decode_tps": [],
+      "quality": {
+        "passed": 0,
+        "total": 0
+      },
+      "capacity": 131072,
+      "cache_mib": 20992,
+      "batch": 128,
+      "ubatch": 16
+    },
+    "qwen-long-phase-v4": {
+      "status": "COMPLETE",
+      "rows": [
+        {
+          "prompt_tokens": 32768,
+          "actual_filled": true,
+          "retrieval_passed": true,
+          "timings": {
+            "cache_n": 0,
+            "prompt_n": 32768,
+            "prompt_ms": 32055.089,
+            "prompt_per_token_ms": 0.9782436828613281,
+            "prompt_per_second": 1022.2401815824002,
+            "predicted_n": 512,
+            "predicted_ms": 10561.603,
+            "predicted_per_token_ms": 20.66849902152642,
+            "predicted_per_second": 48.38280704169623
+          },
+          "request_s": 42.62704217399914,
+          "prompt_ids_file_sha256": "d607ae256e1cfa528a7dd81c50260fe88f137ce5693d0578b6a74fb6d651c764",
+          "output_ids_sha256": "a6f9df67298c6ce0d354ae9134137d7d0879c0a8ec64d2586518de0c0649303a",
+          "output_content": "{\"ORION_A\": 741926, \"ORION_B\": 805137, \"ORION_C\": 269480}\n\n1. **Memory Ownership and Borrowing**: The `engram_graph_stage` and `engram_model_cache` classes explicitly document that they do not own the underlying GGUF tensor data. Instead, they borrow an immutable memory-mapped view (`mapped_rows`), requiring the caller to ensure the mapping remains valid for the lifetime of the cache.\n2. **Strided Memory Access**: The `mapped_rows` structure handles non-contiguous memory layouts by storing a `stride` separate from `payload_bytes`. This allows reading exact row data from GGUF tensors that may have padding between rows, avoiding unnecessary data movement of padding bytes.\n3. **Bounds Checking in Row Access**: Before performing any `memcpy` in `mapped_rows::operator()`, the code calculates the maximum valid row ID based on `mapped_bytes`, `payload_bytes`, and `stride` to prevent out-of-bounds reads and integer overflows during address calculation.\n4. **LRU Cache Implementation**: The `engram_row_cache` implements a Least Recently Used (LRU) eviction policy using a `std::list` for ordering and a `std::unordered_map` for O(1) lookups. When the cache exceeds its `row_capacity_`, the oldest entry is evicted.\n5. **Thread-Safe Cache Access**: The `engram_row_cache` uses a `std::mutex` (`mu_`) to protect the internal state (entries, LRU list, pending set). All public methods like `get`, `prefetch`, and `snapshot` acquire this lock to ensure data consistency across threads.\n6. **Asynchronous Prefetching**: The cache supports an optional background worker thread (`worker_`) that processes prefetch requests. This allows the main inference thread to continue computation while the worker loads data from the source mapping into the cache.\n7. **Condition Variable Synchronization**: Two condition variables, `cv_work_` and `cv_ready_`, are used. `cv_work_` signals the worker thread when new items are added to the queue, while `cv_ready_` signals waiting foreground threads when a requested row has been loaded by the worker.\n8. **Bounded Prefetch Queue**: The prefetch queue (`queue_`) has a configurable capacity (`queue_capacity_`). If the queue is full,"
+        },
+        {
+          "prompt_tokens": 65536,
+          "actual_filled": true,
+          "retrieval_passed": true,
+          "timings": {
+            "cache_n": 0,
+            "prompt_n": 65536,
+            "prompt_ms": 61091.143,
+            "prompt_per_token_ms": 0.9321768646240234,
+            "prompt_per_second": 1072.757797312779,
+            "predicted_n": 512,
+            "predicted_ms": 9372.678,
+            "predicted_per_token_ms": 18.341835616438356,
+            "predicted_per_second": 54.52017022242736
+          },
+          "request_s": 70.92142376400079,
+          "prompt_ids_file_sha256": "d4d26e0f59eddb0b8761718e23c7ed7cfe985b7c4c96cc6bcb44e151bfb3c062",
+          "output_ids_sha256": "7285a6fa8d157175765f3e0e2e2b13594e41e96d35dd4e0a672c3bf349a6883d",
+          "output_content": "{\n  \"ORION_A\": 741926,\n  \"ORION_B\": 805137,\n  \"ORION_C\": 269480\n}\n\n1. **Memory Ownership and Borrowing**: The `engram_graph_stage` and `engram_model_cache` classes explicitly manage memory ownership by borrowing immutable GGUF tensor mappings. The code enforces a strict lifetime contract where the caller must close the cache before releasing the underlying tensor mapping to prevent use-after-free errors.\n2. **Strided Memory Access**: The `mapped_rows` structure handles reading from memory regions that may have a stride larger than the payload size. It calculates offsets using `id * stride` and validates that the read does not exceed the `mapped_bytes` boundary, ensuring safe access to padded GGUF rows.\n3. **Bounded LRU Cache Implementation**: The `engram_row_cache` implements a Least Recently Used (LRU) eviction policy using a `std::list` for ordering and a `std::unordered_map` for fast lookups. It enforces a hard limit on resident data bytes (`max_data_bytes`) to prevent memory bloat.\n4. **Asynchronous Prefetching**: The `engram_row_cache` supports asynchronous prefetching via a dedicated worker thread. It uses a bounded queue (`std::deque`) to store pending row IDs, dropping requests if the queue is full to preserve inference latency rather than blocking.\n5. **Thread Synchronization with Condition Variables**: The cache uses `std::condition_variable` (`cv_work_`, `cv_ready_`) to synchronize between the foreground reader thread and the background worker thread. This allows the foreground thread to wait for a prefetch to complete or fall back to a synchronous read if the wait times out.\n6. **Mutex Protection for Shared State**: A primary mutex (`mu_`) protects the cache entries, LRU list, and pending queue. A separate mutex (`reader_mu_`) serializes access to the underlying source reader callback, ensuring that concurrent reads from the worker and foreground threads do not corrupt the source data access.\n7. **Safe Shutdown Mechanism**: The `close()` method in `engram_row_cache` is designed to be idempotent and safe. It sets a `stopping_` flag, notifies all waiting threads, joins the worker thread, and waits for all active foreground reads to complete before clearing the cache, ensuring no dangling pointers or blocked threads"
+        }
+      ],
+      "post_short_decode_tps": [
+        68.15991224210828,
+        74.58685463724025,
+        76.44682358951113,
+        76.93765214043566
+      ],
+      "quality": {
+        "passed": 0,
+        "total": 0
+      },
+      "capacity": 131072,
+      "cache_mib": 20992,
+      "batch": 4096,
+      "ubatch": 4096
+    },
+    "deepseek128-pilot-4k": {
+      "status": "COMPLETE",
+      "rows": [
+        {
+          "prompt_tokens": 4096,
+          "actual_filled": true,
+          "retrieval_passed": true,
+          "timings": {
+            "cache_n": 0,
+            "prompt_n": 4096,
+            "prompt_ms": 294297.383,
+            "prompt_per_token_ms": 71.84994702148437,
+            "prompt_per_second": 13.917894743902634,
+            "predicted_n": 28,
+            "predicted_ms": 2303.548,
+            "predicted_per_token_ms": 85.31659259259258,
+            "predicted_per_second": 11.721049441991225
+          },
+          "request_s": 296.62508457199965,
+          "prompt_ids_file_sha256": "b805da8dbc4f95e8e5847b9a914ffcea2ba378c403b9a87a46caada18f5dc7d0",
+          "output_ids_sha256": "9a7d5b2bd7cb1ee438b74e0ca36441fec62a2beeecc9bd1fe7d7c48db906a7da",
+          "output_content": "{\"ORION_A\": 741926, \"ORION_B\": 805137, \"ORION_C\": 269480}"
+        }
+      ],
+      "post_short_decode_tps": [],
+      "quality": {
+        "passed": 0,
+        "total": 0
+      },
+      "capacity": 131072,
+      "cache_mib": 20480,
+      "batch": null,
+      "ubatch": null
+    },
+    "deepseek-phase4k-v3": {
+      "status": "COMPLETE",
+      "rows": [
+        {
+          "prompt_tokens": 4096,
+          "actual_filled": true,
+          "retrieval_passed": true,
+          "timings": {
+            "cache_n": 0,
+            "prompt_n": 4096,
+            "prompt_ms": 62678.969,
+            "prompt_per_token_ms": 15.302482666015624,
+            "prompt_per_second": 65.34887324008153,
+            "predicted_n": 28,
+            "predicted_ms": 6997.493,
+            "predicted_per_token_ms": 259.1664074074074,
+            "predicted_per_second": 3.85852476022484
+          },
+          "request_s": 69.699809396001,
+          "prompt_ids_file_sha256": "b805da8dbc4f95e8e5847b9a914ffcea2ba378c403b9a87a46caada18f5dc7d0",
+          "output_ids_sha256": "9a7d5b2bd7cb1ee438b74e0ca36441fec62a2beeecc9bd1fe7d7c48db906a7da",
+          "output_content": "{\"ORION_A\": 741926, \"ORION_B\": 805137, \"ORION_C\": 269480}"
+        }
+      ],
+      "post_short_decode_tps": [
+        14.742084627890705,
+        22.32372269349109,
+        24.841460338855054,
+        26.041876767592385
+      ],
+      "quality": {
+        "passed": 9,
+        "total": 12
+      },
+      "capacity": 131072,
+      "cache_mib": 20480,
+      "batch": 4096,
+      "ubatch": 4096
+    },
+    "deepseek-long-phase-v4": {
+      "status": "COMPLETE",
+      "rows": [
+        {
+          "prompt_tokens": 32768,
+          "actual_filled": true,
+          "retrieval_passed": true,
+          "timings": {
+            "cache_n": 0,
+            "prompt_n": 32768,
+            "prompt_ms": 711922.087,
+            "prompt_per_token_ms": 21.72613790893555,
+            "prompt_per_second": 46.02750862539259,
+            "predicted_n": 512,
+            "predicted_ms": 48790.929,
+            "predicted_per_token_ms": 95.4812700587084,
+            "predicted_per_second": 10.47325825667308
+          },
+          "request_s": 760.7827359829989,
+          "prompt_ids_file_sha256": "900473779db7edc0b05616eae5a6e391fd427105d3a4d21bcfd997b0ff4ea4f0",
+          "output_ids_sha256": "324b60064f8ea29d4bf0cec497352be1f1b42ee007b448ea71373f30ea810849",
+          "output_content": "{\"ORION_A\": 741926, \"ORION_B\": 805137, \"ORION_C\": 269480}\n\nНиже — разбор механизмов, видимых в коде. Важно: часть кода обрывается (например, `cpu_gate_up.hpp` разрезан посреди выражения, `mmq_select_probe_fixture.cpp` обрывается на цикле), поэтому описание относится только к тому, что реально присутствует в документе. Комментарии и «предложения» (P08, P09, P13, P14 и т.п.) отделены от фактически реализованного поведения.\n\n1. **Разделение «реализовано / заявлено».** Реально реализованы: `engram_row_cache`, `engram_model_cache`, `engram_graph_stage`, `mapped_rows`, `mmq_tile_cache`, `mmq_select_probe`, `moe_upload_pipeline`, `moe_upload_worker`, `moe_fill_plan`, `moe_upload_scheduler`, `moe_upload_completion`, `mtp_rewind_guard`, `mtp_verify_window`, а также тестовые фикстуры. Комментарии вида «P15C: opt-in HOST profiling… NOT a GPU timer» — это описание намерения, а не отдельный механизм.\n\n2. **Память в `engram_row_cache`: жёсткий бюджет по полезной нагрузке.** `row_capacity_ = max_data_bytes / row_bytes`, причём `max_data_bytes` ограничен 64 МиБ, `row_bytes` — 1 МиБ, `queue_capacity` — 65536. Это проверяется в конструкторе и бросает `std::invalid_argument`. То есть бюджет считается только по payload, без учёта метаданных `unordered_map`/`list` (это прямо оговорено в комментарии).\n\n3. **Память: LRU-вытеснение.** `insert()` при заполнении удаляет `lru_.back()`, стирает запись из `entries_` и инкрементирует `stats_.evicted`. `fetch_hit()` делает `lru_.splice(lru_.begin(), ...)`, перемещая строку в начало. Это классический LRU на `"
+        },
+        {
+          "prompt_tokens": 65536,
+          "actual_filled": true,
+          "retrieval_passed": true,
+          "timings": {
+            "cache_n": 0,
+            "prompt_n": 65536,
+            "prompt_ms": 1290607.084,
+            "prompt_per_token_ms": 19.69310125732422,
+            "prompt_per_second": 50.779203688300846,
+            "predicted_n": 512,
+            "predicted_ms": 48492.786,
+            "predicted_per_token_ms": 94.89781996086106,
+            "predicted_per_second": 10.53764986816802
+          },
+          "request_s": 1339.2744565880002,
+          "prompt_ids_file_sha256": "c3b3aecb05db0a4246a2af097f607fe0c0908808dfd31be21e756a05bd8e9957",
+          "output_ids_sha256": "e6554164add11da4add19248e13e36c0ae4abdc75c8f3f402842c3feb8dc5521",
+          "output_content": "{\"ORION_A\": 741926, \"ORION_B\": 805137, \"ORION_C\": 269480}\n\nНиже — разбор механизмов, видимых в коде. Важно: часть кода в документе обрезана/повреждена (например, `cpu_gate_up.hpp` содержит вставку «Verified register: ORION_A = ...» прямо посреди выражения, а `mmq_select_probe_fixture.cpp` и `build_pair.py` обрываются), поэтому я описываю только то, что реально присутствует, и отделяю реализованное поведение от комментариев/предложений.\n\n1. **Разделение «реализовано» и «заявлено».** Многие заголовки начинаются с комментариев вида «P08/P09/P13/P14/P15…», которые описывают намерения, ограничения и контракты. Это документация, а не исполняемая логика. Реализация — это тела функций, классы, проверки `if`, вызовы `memcpy`, мьютексы и т.п.\n\n2. **Память: точные сырые строки без конвертации.** `mapped_rows` хранит `base`, `mapped_bytes`, `stride`, `payload_bytes` и копирует ровно `payload_bytes` через `memcpy`. Комментарий «No conversion, dequantization» подтверждается кодом: преобразований типов нет, только копирование байтов.\n\n3. **Память: защита от переполнения индекса.** В `mapped_rows::operator()` проверка `id > (mapped_bytes - payload_bytes)/stride` выполняется до умножения `id*stride`, что предотвращает переполнение. Это реализовано, а не только описано.\n\n4. **Память: LRU-кэш с жёстким лимитом.** `engram_row_cache` хранит `entries_` (`unordered_map`), `lru_` (`list`) и `row_capacity_ = max_data_bytes / row_bytes`. При вставке (`insert`) вытесняется `lru_.back()`, пока `entries_.size() >= row_capacity_`. Лимит по полезной нагрузке реален; метаданные"
+        }
+      ],
+      "post_short_decode_tps": [
+        14.63868286298193,
+        17.890430584076956,
+        22.876947501083738,
+        20.9397359326854
+      ],
+      "quality": {
+        "passed": 9,
+        "total": 12
+      },
+      "capacity": 131072,
+      "cache_mib": 20480,
+      "batch": 4096,
+      "ubatch": 4096
+    }
+  },
+  "corpus_sha256": "116866459316f6a5305076211642548636d246ef4c0449d851caa417194bb2ab",
+  "limits": [
+    "Expert-cache contents and frequency counts reset on phase change; host registration and KV retained.",
+    "32K Qwen input IDs match baseline; long output IDs differ. Both answers used English despite the Russian-language request.",
+    "Lookup correctness is not general long-context quality; full filled128K/256K not validated.",
+    "DeepSeek legacy4K numbers use V3 before retained host registration; current build uses V4."
+  ]
+}

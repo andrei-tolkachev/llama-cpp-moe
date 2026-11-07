@@ -1,0 +1,15 @@
+{
+  "scope": "CUDA_MICROBENCHMARK_NOT_MODEL_THROUGHPUT",
+  "geometry": {
+    "k": 320,
+    "embedding": 2560
+  },
+  "baseline_us": 3.569055,
+  "fused_us": 2.984685,
+  "cases": 60,
+  "float_comparisons": 78720,
+  "mismatches": 0,
+  "estimated_savings_ms_per_token_at_96_calls": 0.05609952000000003,
+  "decision": "Not integrated: estimated total token-time reduction below 0.5%; no end-to-end gain measured.",
+  "full_log": "ggml_cuda_init: found 1 CUDA devices (Total VRAM: 32199 MiB):\n  Device 0: NVIDIA GeForce RTX 5090, compute capability 12.0, VMM: yes, VRAM: 32199 MiB\nBENCH k=64 embd=64 baseline_us=2.119135 fused_us=1.599410 speedup=1.32495\nBENCH k=64 embd=2560 baseline_us=3.409695 fused_us=2.750605 speedup=1.23962\nBENCH k=128 embd=64 baseline_us=2.097920 fused_us=1.665980 speedup=1.25927\nBENCH k=128 embd=2560 baseline_us=3.617445 fused_us=2.753015 speedup=1.31399\nBENCH k=256 embd=64 baseline_us=2.111210 fused_us=1.663570 speedup=1.26908\nBENCH k=256 embd=2560 baseline_us=3.432095 fused_us=2.940690 speedup=1.16711\nBENCH k=320 embd=64 baseline_us=2.157600 fused_us=1.693650 speedup=1.27393\nBENCH k=320 embd=2560 baseline_us=3.569055 fused_us=2.984685 speedup=1.19579\nBENCH k=512 embd=64 baseline_us=2.147300 fused_us=1.743715 speedup=1.23145\nBENCH k=512 embd=2560 baseline_us=3.820160 fused_us=3.070610 speedup=1.24410\nBENCH k=768 embd=64 baseline_us=2.315680 fused_us=1.847090 speedup=1.25369\nBENCH k=768 embd=2560 baseline_us=4.097695 fused_us=3.575240 speedup=1.14613\nCHECK cases=60 floats=78720 mismatches=0 max_abs_error=0\n"
+}

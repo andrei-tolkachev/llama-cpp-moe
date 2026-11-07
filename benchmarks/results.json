@@ -1,0 +1,1807 @@
+{
+  "scope": "Historical short-context screening; not release acceptance or quality equivalence",
+  "hardware": {
+    "cpu": "Intel Core i9-13900K",
+    "gpu": "RTX 5090 32 GiB",
+    "ram_gib": 128
+  },
+  "series": [
+    {
+      "name": "deepseek-chat-base-cache20",
+      "status": "SCREENING_COMPLETE",
+      "source_json_sha256": "011be1e7f2eee2cf0c4e4923960cf59b2f26e4c1c4f8ab9676546930c6dd8a99",
+      "model": "DeepSeek-V4.1-Flash-1017-UD-IQ3_XXS-00001-of-00007.gguf",
+      "settings": {
+        "ctx": 131072,
+        "predict": 256,
+        "ngl": 41,
+        "moe_cache_mib": 20480,
+        "threads": 8,
+        "ubatch": 16,
+        "cpu_mask": null,
+        "cpu_strict": false,
+        "timeout": 7200,
+        "mtp": false,
+        "draft_max": 4,
+        "fill_tokens": 0
+      },
+      "runs": [
+        {
+          "timings": {
+            "cache_n": 0,
+            "prompt_n": 161,
+            "prompt_ms": 37958.377,
+            "prompt_per_token_ms": 235.76631677018634,
+            "prompt_per_second": 4.2414879856428,
+            "predicted_n": 256,
+            "predicted_ms": 40449.232,
+            "predicted_per_token_ms": 158.6244392156863,
+            "predicted_per_second": 6.304198804071237
+          },
+          "native_eog": false,
+          "output_ids_sha256": "b1e7601f4009462ebe5aa3c74f1769f3116dab8e9b23785ee302e7a180c6ae47"
+        },
+        {
+          "timings": {
+            "cache_n": 0,
+            "prompt_n": 161,
+            "prompt_ms": 23899.266,
+            "prompt_per_token_ms": 148.4426459627329,
+            "prompt_per_second": 6.7366085636270165,
+            "predicted_n": 256,
+            "predicted_ms": 34172.265,
+            "predicted_per_token_ms": 134.00888235294119,
+            "predicted_per_second": 7.46219192669845
+          },
+          "native_eog": false,
+          "output_ids_sha256": "ab9825fd604c4cb14e0dd034c80d8dfc752cbc33732e389d5281ed5c10552fb8"
+        },
+        {
+          "timings": {
+            "cache_n": 0,
+            "prompt_n": 161,
+            "prompt_ms": 23683.904,
+            "prompt_per_token_ms": 147.10499378881985,
+            "prompt_per_second": 6.797865757267045,
+            "predicted_n": 256,
+            "predicted_ms": 32486.578,
+            "predicted_per_token_ms": 127.39834509803921,
+            "predicted_per_second": 7.849395525746047
+          },
+          "native_eog": false,
+          "output_ids_sha256": "ab9825fd604c4cb14e0dd034c80d8dfc752cbc33732e389d5281ed5c10552fb8"
+        }
+      ]
+    },
+    {
+      "name": "r21-clean-deepseek-speed-1",
+      "status": "SCREENING_COMPLETE",
+      "source_json_sha256": "dc9f680867971f2437559d60e63b8fc464030318abc67730995db77424bd4b6f",
+      "model": "DeepSeek-V4.1-Flash-1017-UD-IQ3_XXS-00001-of-00007.gguf",
+      "settings": {
+        "ctx": 131072,
+        "predict": 256,
+        "ngl": 41,
+        "moe_cache_mib": 21504,
+        "threads": 16,
+        "ubatch": 16,
+        "cpu_mask": "0xffff",
+        "cpu_strict": true,
+        "timeout": 7200,
+        "mtp": false,
+        "draft_max": 4,
+        "fill_tokens": 0,
+        "cache_type_k": "f16",
+        "cache_type_v": "f16",
+        "batch": 128
+      },
+      "runs": [
+        {
+          "timings": {
+            "cache_n": 0,
+            "prompt_n": 161,
+            "prompt_ms": 26763.221,
+            "prompt_per_token_ms": 166.23118633540375,
+            "prompt_per_second": 6.015718362150803,
+            "predicted_n": 256,
+            "predicted_ms": 18302.067,
+            "predicted_per_token_ms": 71.77281176470588,
+            "predicted_per_second": 13.932852502397681
+          },
+          "native_eog": false,
+          "output_ids_sha256": "03dce8e51aa9821fa7123e8d7da8166439e8798b5a3f3261fc98e6ecc32e62a0"
+        },
+        {
+          "timings": {
+            "cache_n": 0,
+            "prompt_n": 161,
+            "prompt_ms": 17438.424,
+            "prompt_per_token_ms": 108.31319254658385,
+            "prompt_per_second": 9.232485687926845,
+            "predicted_n": 256,
+            "predicted_ms": 15354.312,
+            "predicted_per_token_ms": 60.21298823529412,
+            "predicted_per_second": 16.607712543551283
+          },
+          "native_eog": false,
+          "output_ids_sha256": "c4ae6c0ace04b0681ec86ea9b239dc2cdbcdb07048bd8c05b023dc2106df135c"
+        },
+        {
+          "timings": {
+            "cache_n": 0,
+            "prompt_n": 161,
+            "prompt_ms": 13404.382,
+            "prompt_per_token_ms": 83.25703105590061,
+            "prompt_per_second": 12.010997597651276,
+            "predicted_n": 256,
+            "predicted_ms": 15325.152,
+            "predicted_per_token_ms": 60.09863529411765,
+            "predicted_per_second": 16.639312941235428
+          },
+          "native_eog": false,
+          "output_ids_sha256": "ea20848ed252de497d55f2724cf18b24b652c3b477957cf4fb4251813614ff77"
+        },
+        {
+          "timings": {
+            "cache_n": 0,
+            "prompt_n": 161,
+            "prompt_ms": 13085.427,
+            "prompt_per_token_ms": 81.27594409937888,
+            "prompt_per_second": 12.303763568433801,
+            "predicted_n": 256,
+            "predicted_ms": 15596.403,
+            "predicted_per_token_ms": 61.162364705882354,
+            "predicted_per_second": 16.349923761267263
+          },
+          "native_eog": false,
+          "output_ids_sha256": "2ff3b7bebf9fb7a3e9b70f7508c92ba8a0cb844d3f40a67d526fb6d11460af90"
+        }
+      ]
+    },
+    {
+      "name": "r21-clean-deepseek-speed-2",
+      "status": "SCREENING_COMPLETE",
+      "source_json_sha256": "85741546a369ea12bdad7117d5ae0bc6d66ec75ce1c430a42399bed6eb0ea7f5",
+      "model": "DeepSeek-V4.1-Flash-1017-UD-IQ3_XXS-00001-of-00007.gguf",
+      "settings": {
+        "ctx": 131072,
+        "predict": 256,
+        "ngl": 41,
+        "moe_cache_mib": 21504,
+        "threads": 16,
+        "ubatch": 16,
+        "cpu_mask": "0xffff",
+        "cpu_strict": true,
+        "timeout": 7200,
+        "mtp": false,
+        "draft_max": 4,
+        "fill_tokens": 0,
+        "draft_cpu_moe": false,
+        "cache_type_k": "f16",
+        "cache_type_v": "f16",
+        "batch": 128
+      },
+      "runs": [
+        {
+          "timings": {
+            "cache_n": 0,
+            "prompt_n": 161,
+            "prompt_ms": 28221.955,
+            "prompt_per_token_ms": 175.29164596273293,
+            "prompt_per_second": 5.704778425165797,
+            "predicted_n": 256,
+            "predicted_ms": 19077.137,
+            "predicted_per_token_ms": 74.81230196078431,
+            "predicted_per_second": 13.366785592618013
+          },
+          "native_eog": false,
+          "output_ids_sha256": "c7247b7214cc5fde326c415c5e30b6f444b1e8ded3fb8572b278ad4fc5bb6c68"
+        },
+        {
+          "timings": {
+            "cache_n": 0,
+            "prompt_n": 161,
+            "prompt_ms": 16698.617,
+            "prompt_per_token_ms": 103.71811801242235,
+            "prompt_per_second": 9.641517019044153,
+            "predicted_n": 256,
+            "predicted_ms": 19015.778,
+            "predicted_per_token_ms": 74.57167843137255,
+            "predicted_per_second": 13.409916754392064
+          },
+          "native_eog": false,
+          "output_ids_sha256": "7d0b9d99f1171032e62608ee06ccb653746b64b3696e53fcc35acaecb328f14c"
+        },
+        {
+          "timings": {
+            "cache_n": 0,
+            "prompt_n": 161,
+            "prompt_ms": 14693.352,
+            "prompt_per_token_ms": 91.26305590062113,
+            "prompt_per_second": 10.957336351841295,
+            "predicted_n": 256,
+            "predicted_ms": 15298.992,
+            "predicted_per_token_ms": 59.99604705882353,
+            "predicted_per_second": 16.667764778228523
+          },
+          "native_eog": false,
+          "output_ids_sha256": "ab9825fd604c4cb14e0dd034c80d8dfc752cbc33732e389d5281ed5c10552fb8"
+        },
+        {
+          "timings": {
+            "cache_n": 0,
+            "prompt_n": 161,
+            "prompt_ms": 11502.413,
+            "prompt_per_token_ms": 71.44355900621119,
+            "prompt_per_second": 13.99706305103112,
+            "predicted_n": 256,
+            "predicted_ms": 13057.299,
+            "predicted_per_token_ms": 51.205094117647064,
+            "predicted_per_second": 19.529306941657687
+          },
+          "native_eog": false,
+          "output_ids_sha256": "d8c73626a50edd4544f4bc0c2b07fb4616e513308ef9478f424fc0d0fad932d3"
+        }
+      ]
+    },
+    {
+      "name": "qwen-chat-r20-cache21",
+      "status": "SCREENING_COMPLETE",
+      "source_json_sha256": "6af22a453823259e6787e4bc52d685e706c697d0b33dc5040ecda0454abf198d",
+      "model": "Qwen3.8-Flash-Next-UD-Q4_K_XL-00001-of-00004.gguf",
+      "settings": {
+        "ctx": 131072,
+        "predict": 256,
+        "ngl": 49,
+        "moe_cache_mib": 21504,
+        "threads": 16,
+        "ubatch": 16,
+        "cpu_mask": "0xffff",
+        "cpu_strict": true,
+        "timeout": 7200,
+        "mtp": false,
+        "draft_max": 4,
+        "fill_tokens": 0
+      },
+      "runs": [
+        {
+          "timings": {
+            "cache_n": 0,
+            "prompt_n": 154,
+            "prompt_ms": 3175.424,
+            "prompt_per_token_ms": 20.619636363636364,
+            "prompt_per_second": 48.49746049661399,
+            "predicted_n": 256,
+            "predicted_ms": 4248.704,
+            "predicted_per_token_ms": 16.661584313725488,
+            "predicted_per_second": 60.0183020516374
+          },
+          "native_eog": false,
+          "output_ids_sha256": "35c30727c34544142a873ffaa8c2adbff14c3b2accae029cff914d25613e2fd9"
+        },
+        {
+          "timings": {
+            "cache_n": 0,
+            "prompt_n": 154,
+            "prompt_ms": 2229.013,
+            "prompt_per_token_ms": 14.47411038961039,
+            "prompt_per_second": 69.08887476205837,
+            "predicted_n": 256,
+            "predicted_ms": 4027.735,
+            "predicted_per_token_ms": 15.795039215686275,
+            "predicted_per_second": 63.311017234252
+          },
+          "native_eog": false,
+          "output_ids_sha256": "35c30727c34544142a873ffaa8c2adbff14c3b2accae029cff914d25613e2fd9"
+        },
+        {
+          "timings": {
+            "cache_n": 0,
+            "prompt_n": 154,
+            "prompt_ms": 2181.237,
+            "prompt_per_token_ms": 14.163876623376623,
+            "prompt_per_second": 70.60213997837008,
+            "predicted_n": 256,
+            "predicted_ms": 4034.694,
+            "predicted_per_token_ms": 15.822329411764706,
+            "predicted_per_second": 63.20181902270655
+          },
+          "native_eog": false,
+          "output_ids_sha256": "35c30727c34544142a873ffaa8c2adbff14c3b2accae029cff914d25613e2fd9"
+        }
+      ]
+    },
+    {
+      "name": "qwen-pin-repeat-a1",
+      "status": "SCREENING_COMPLETE",
+      "source_json_sha256": "fa2d14fdb48706863b6a95c2963f16047c2eaa041e08ed87c764edc1f60594ec",
+      "model": "Qwen3.8-Flash-Next-UD-Q4_K_XL-00001-of-00004.gguf",
+      "settings": {
+        "ctx": 131072,
+        "predict": 256,
+        "ngl": 49,
+        "moe_cache_mib": 21504,
+        "threads": 16,
+        "ubatch": 16,
+        "cpu_mask": "0xffff",
+        "cpu_strict": true,
+        "timeout": 7200,
+        "mtp": false,
+        "draft_max": 4,
+        "fill_tokens": 0
+      },
+      "runs": [
+        {
+          "timings": {
+            "cache_n": 0,
+            "prompt_n": 154,
+            "prompt_ms": 2646.429,
+            "prompt_per_token_ms": 17.184603896103898,
+            "prompt_per_second": 58.19162350473034,
+            "predicted_n": 256,
+            "predicted_ms": 3897.588,
+            "predicted_per_token_ms": 15.284658823529412,
+            "predicted_per_second": 65.42507827918189
+          },
+          "native_eog": false,
+          "output_ids_sha256": "35c30727c34544142a873ffaa8c2adbff14c3b2accae029cff914d25613e2fd9"
+        },
+        {
+          "timings": {
+            "cache_n": 0,
+            "prompt_n": 154,
+            "prompt_ms": 1703.637,
+            "prompt_per_token_ms": 11.062577922077923,
+            "prompt_per_second": 90.39484350245975,
+            "predicted_n": 256,
+            "predicted_ms": 3395.257,
+            "predicted_per_token_ms": 13.314733333333333,
+            "predicted_per_second": 75.1047711557623
+          },
+          "native_eog": false,
+          "output_ids_sha256": "35c30727c34544142a873ffaa8c2adbff14c3b2accae029cff914d25613e2fd9"
+        },
+        {
+          "timings": {
+            "cache_n": 0,
+            "prompt_n": 154,
+            "prompt_ms": 1726.551,
+            "prompt_per_token_ms": 11.21137012987013,
+            "prompt_per_second": 89.19516423204412,
+            "predicted_n": 256,
+            "predicted_ms": 3398.457,
+            "predicted_per_token_ms": 13.327282352941175,
+            "predicted_per_second": 75.03405221840383
+          },
+          "native_eog": false,
+          "output_ids_sha256": "35c30727c34544142a873ffaa8c2adbff14c3b2accae029cff914d25613e2fd9"
+        }
+      ]
+    },
+    {
+      "name": "qwen-pin-repeat-a2",
+      "status": "SCREENING_COMPLETE",
+      "source_json_sha256": "32d036b788827442ff1b77a64e5b26fa4f65e12ed777df60200d64590eb9317b",
+      "model": "Qwen3.8-Flash-Next-UD-Q4_K_XL-00001-of-00004.gguf",
+      "settings": {
+        "ctx": 131072,
+        "predict": 256,
+        "ngl": 49,
+        "moe_cache_mib": 21504,
+        "threads": 16,
+        "ubatch": 16,
+        "cpu_mask": "0xffff",
+        "cpu_strict": true,
+        "timeout": 7200,
+        "mtp": false,
+        "draft_max": 4,
+        "fill_tokens": 0
+      },
+      "runs": [
+        {
+          "timings": {
+            "cache_n": 0,
+            "prompt_n": 154,
+            "prompt_ms": 2636.489,
+            "prompt_per_token_ms": 17.12005844155844,
+            "prompt_per_second": 58.4110155589498,
+            "predicted_n": 256,
+            "predicted_ms": 4000.561,
+            "predicted_per_token_ms": 15.688474509803923,
+            "predicted_per_second": 63.74106031629064
+          },
+          "native_eog": false,
+          "output_ids_sha256": "35c30727c34544142a873ffaa8c2adbff14c3b2accae029cff914d25613e2fd9"
+        },
+        {
+          "timings": {
+            "cache_n": 0,
+            "prompt_n": 154,
+            "prompt_ms": 1713.035,
+            "prompt_per_token_ms": 11.123603896103896,
+            "prompt_per_second": 89.89892208857378,
+            "predicted_n": 256,
+            "predicted_ms": 3391.572,
+            "predicted_per_token_ms": 13.300282352941178,
+            "predicted_per_second": 75.18637375234847
+          },
+          "native_eog": false,
+          "output_ids_sha256": "35c30727c34544142a873ffaa8c2adbff14c3b2accae029cff914d25613e2fd9"
+        },
+        {
+          "timings": {
+            "cache_n": 0,
+            "prompt_n": 154,
+            "prompt_ms": 1716.94,
+            "prompt_per_token_ms": 11.148961038961039,
+            "prompt_per_second": 89.69445641664822,
+            "predicted_n": 256,
+            "predicted_ms": 3399.357,
+            "predicted_per_token_ms": 13.330811764705881,
+            "predicted_per_second": 75.01418650644814
+          },
+          "native_eog": false,
+          "output_ids_sha256": "35c30727c34544142a873ffaa8c2adbff14c3b2accae029cff914d25613e2fd9"
+        }
+      ]
+    },
+    {
+      "name": "qwen-r20-repeat-b1",
+      "status": "SCREENING_COMPLETE",
+      "source_json_sha256": "94ecefba554036f903f2052328287602abecb5ad43ca98272d893451e03b603f",
+      "model": "Qwen3.8-Flash-Next-UD-Q4_K_XL-00001-of-00004.gguf",
+      "settings": {
+        "ctx": 131072,
+        "predict": 256,
+        "ngl": 49,
+        "moe_cache_mib": 21504,
+        "threads": 16,
+        "ubatch": 16,
+        "cpu_mask": "0xffff",
+        "cpu_strict": true,
+        "timeout": 7200,
+        "mtp": false,
+        "draft_max": 4,
+        "fill_tokens": 0
+      },
+      "runs": [
+        {
+          "timings": {
+            "cache_n": 0,
+            "prompt_n": 154,
+            "prompt_ms": 3182.381,
+            "prompt_per_token_ms": 20.664811688311687,
+            "prompt_per_second": 48.39144024552686,
+            "predicted_n": 256,
+            "predicted_ms": 4274.004,
+            "predicted_per_token_ms": 16.7608,
+            "predicted_per_second": 59.66302324471386
+          },
+          "native_eog": false,
+          "output_ids_sha256": "35c30727c34544142a873ffaa8c2adbff14c3b2accae029cff914d25613e2fd9"
+        },
+        {
+          "timings": {
+            "cache_n": 0,
+            "prompt_n": 154,
+            "prompt_ms": 2176.739,
+            "prompt_per_token_ms": 14.134668831168831,
+            "prompt_per_second": 70.74803180353732,
+            "predicted_n": 256,
+            "predicted_ms": 3949.639,
+            "predicted_per_token_ms": 15.488780392156864,
+            "predicted_per_second": 64.56286258060547
+          },
+          "native_eog": false,
+          "output_ids_sha256": "35c30727c34544142a873ffaa8c2adbff14c3b2accae029cff914d25613e2fd9"
+        },
+        {
+          "timings": {
+            "cache_n": 0,
+            "prompt_n": 154,
+            "prompt_ms": 2179.409,
+            "prompt_per_token_ms": 14.152006493506494,
+            "prompt_per_second": 70.66135819389568,
+            "predicted_n": 256,
+            "predicted_ms": 3950.128,
+            "predicted_per_token_ms": 15.490698039215687,
+            "predicted_per_second": 64.55487012066445
+          },
+          "native_eog": false,
+          "output_ids_sha256": "35c30727c34544142a873ffaa8c2adbff14c3b2accae029cff914d25613e2fd9"
+        }
+      ]
+    },
+    {
+      "name": "qwen-r20-repeat-b2",
+      "status": "SCREENING_COMPLETE",
+      "source_json_sha256": "03cf80509f5b58ff0f0654a1664f3129960e5bb93cfd02ddd101676d02b3bd32",
+      "model": "Qwen3.8-Flash-Next-UD-Q4_K_XL-00001-of-00004.gguf",
+      "settings": {
+        "ctx": 131072,
+        "predict": 256,
+        "ngl": 49,
+        "moe_cache_mib": 21504,
+        "threads": 16,
+        "ubatch": 16,
+        "cpu_mask": "0xffff",
+        "cpu_strict": true,
+        "timeout": 7200,
+        "mtp": false,
+        "draft_max": 4,
+        "fill_tokens": 0
+      },
+      "runs": [
+        {
+          "timings": {
+            "cache_n": 0,
+            "prompt_n": 154,
+            "prompt_ms": 2708.638,
+            "prompt_per_token_ms": 17.58855844155844,
+            "prompt_per_second": 56.85514269533249,
+            "predicted_n": 256,
+            "predicted_ms": 3987.258,
+            "predicted_per_token_ms": 15.636305882352941,
+            "predicted_per_second": 63.95372458968043
+          },
+          "native_eog": false,
+          "output_ids_sha256": "35c30727c34544142a873ffaa8c2adbff14c3b2accae029cff914d25613e2fd9"
+        },
+        {
+          "timings": {
+            "cache_n": 0,
+            "prompt_n": 154,
+            "prompt_ms": 2191.128,
+            "prompt_per_token_ms": 14.228103896103898,
+            "prompt_per_second": 70.2834339207933,
+            "predicted_n": 256,
+            "predicted_ms": 3948.141,
+            "predicted_per_token_ms": 15.482905882352942,
+            "predicted_per_second": 64.58735896210393
+          },
+          "native_eog": false,
+          "output_ids_sha256": "35c30727c34544142a873ffaa8c2adbff14c3b2accae029cff914d25613e2fd9"
+        },
+        {
+          "timings": {
+            "cache_n": 0,
+            "prompt_n": 154,
+            "prompt_ms": 2179.365,
+            "prompt_per_token_ms": 14.151720779220778,
+            "prompt_per_second": 70.66278480199507,
+            "predicted_n": 256,
+            "predicted_ms": 3939.417,
+            "predicted_per_token_ms": 15.448694117647058,
+            "predicted_per_second": 64.73039030902288
+          },
+          "native_eog": false,
+          "output_ids_sha256": "35c30727c34544142a873ffaa8c2adbff14c3b2accae029cff914d25613e2fd9"
+        }
+      ]
+    },
+    {
+      "name": "r21-clean-qwen-speed",
+      "status": "SCREENING_COMPLETE",
+      "source_json_sha256": "ec0fd6f9336e70f326f13ab20b225ff72250c9a0a8797137cb28ff0f3d61ac55",
+      "model": "Qwen3.8-Flash-Next-UD-Q4_K_XL-00001-of-00004.gguf",
+      "settings": {
+        "ctx": 131072,
+        "predict": 256,
+        "ngl": 49,
+        "moe_cache_mib": 21504,
+        "threads": 16,
+        "ubatch": 16,
+        "cpu_mask": "0xffff",
+        "cpu_strict": true,
+        "timeout": 7200,
+        "mtp": false,
+        "draft_max": 4,
+        "fill_tokens": 0,
+        "cache_type_k": "f16",
+        "cache_type_v": "f16",
+        "batch": 128
+      },
+      "runs": [
+        {
+          "timings": {
+            "cache_n": 0,
+            "prompt_n": 154,
+            "prompt_ms": 2246.31,
+            "prompt_per_token_ms": 14.586428571428572,
+            "prompt_per_second": 68.55687772391165,
+            "predicted_n": 256,
+            "predicted_ms": 3876.397,
+            "predicted_per_token_ms": 15.201556862745099,
+            "predicted_per_second": 65.7827358756082
+          },
+          "native_eog": false,
+          "output_ids_sha256": "35c30727c34544142a873ffaa8c2adbff14c3b2accae029cff914d25613e2fd9"
+        },
+        {
+          "timings": {
+            "cache_n": 0,
+            "prompt_n": 154,
+            "prompt_ms": 1708.552,
+            "prompt_per_token_ms": 11.094493506493507,
+            "prompt_per_second": 90.13480420847596,
+            "predicted_n": 256,
+            "predicted_ms": 3420.167,
+            "predicted_per_token_ms": 13.412419607843137,
+            "predicted_per_second": 74.55776282269258
+          },
+          "native_eog": false,
+          "output_ids_sha256": "35c30727c34544142a873ffaa8c2adbff14c3b2accae029cff914d25613e2fd9"
+        },
+        {
+          "timings": {
+            "cache_n": 0,
+            "prompt_n": 154,
+            "prompt_ms": 1695.182,
+            "prompt_per_token_ms": 11.007675324675326,
+            "prompt_per_second": 90.84570270330855,
+            "predicted_n": 256,
+            "predicted_ms": 3403.419,
+            "predicted_per_token_ms": 13.346741176470587,
+            "predicted_per_second": 74.92465664674258
+          },
+          "native_eog": false,
+          "output_ids_sha256": "35c30727c34544142a873ffaa8c2adbff14c3b2accae029cff914d25613e2fd9"
+        }
+      ]
+    },
+    {
+      "name": "r21-deploy-qwen-final",
+      "status": "SCREENING_COMPLETE",
+      "source_json_sha256": "27972295f92cc91f683f7b5132258a2478556447522723c114d8b25dd0eda05b",
+      "model": "Qwen3.8-Flash-Next-UD-Q4_K_XL-00001-of-00004.gguf",
+      "settings": {
+        "ctx": 131072,
+        "predict": 256,
+        "ngl": 49,
+        "moe_cache_mib": 20992,
+        "threads": 16,
+        "ubatch": 16,
+        "cpu_mask": "0xffff",
+        "cpu_strict": true,
+        "timeout": 7200,
+        "mtp": false,
+        "draft_max": 4,
+        "fill_tokens": 0,
+        "draft_cpu_moe": false,
+        "cache_type_k": "f16",
+        "cache_type_v": "f16",
+        "batch": 128
+      },
+      "runs": [
+        {
+          "timings": {
+            "cache_n": 0,
+            "prompt_n": 154,
+            "prompt_ms": 1946.647,
+            "prompt_per_token_ms": 12.640564935064935,
+            "prompt_per_second": 79.11038827275823,
+            "predicted_n": 256,
+            "predicted_ms": 6946.385,
+            "predicted_per_token_ms": 27.24072549019608,
+            "predicted_per_second": 36.709741829743095
+          },
+          "native_eog": false,
+          "output_ids_sha256": "35c30727c34544142a873ffaa8c2adbff14c3b2accae029cff914d25613e2fd9"
+        },
+        {
+          "timings": {
+            "cache_n": 0,
+            "prompt_n": 154,
+            "prompt_ms": 1812.909,
+            "prompt_per_token_ms": 11.772136363636365,
+            "prompt_per_second": 84.94634865842687,
+            "predicted_n": 256,
+            "predicted_ms": 4330.004,
+            "predicted_per_token_ms": 16.980407843137254,
+            "predicted_per_second": 58.89140056221657
+          },
+          "native_eog": false,
+          "output_ids_sha256": "35c30727c34544142a873ffaa8c2adbff14c3b2accae029cff914d25613e2fd9"
+        },
+        {
+          "timings": {
+            "cache_n": 0,
+            "prompt_n": 154,
+            "prompt_ms": 1811.162,
+            "prompt_per_token_ms": 11.760792207792209,
+            "prompt_per_second": 85.02828570829114,
+            "predicted_n": 256,
+            "predicted_ms": 4313.412,
+            "predicted_per_token_ms": 16.91534117647059,
+            "predicted_per_second": 59.117932625030946
+          },
+          "native_eog": false,
+          "output_ids_sha256": "35c30727c34544142a873ffaa8c2adbff14c3b2accae029cff914d25613e2fd9"
+        },
+        {
+          "timings": {
+            "cache_n": 0,
+            "prompt_n": 154,
+            "prompt_ms": 1832.646,
+            "prompt_per_token_ms": 11.9002987012987,
+            "prompt_per_second": 84.03150417483792,
+            "predicted_n": 256,
+            "predicted_ms": 4343.309,
+            "predicted_per_token_ms": 17.03258431372549,
+            "predicted_per_second": 58.71099661571396
+          },
+          "native_eog": false,
+          "output_ids_sha256": "35c30727c34544142a873ffaa8c2adbff14c3b2accae029cff914d25613e2fd9"
+        },
+        {
+          "timings": {
+            "cache_n": 0,
+            "prompt_n": 154,
+            "prompt_ms": 1832.871,
+            "prompt_per_token_ms": 11.901759740259742,
+            "prompt_per_second": 84.021188616111,
+            "predicted_n": 256,
+            "predicted_ms": 4233.03,
+            "predicted_per_token_ms": 16.600117647058823,
+            "predicted_per_second": 60.24053692036201
+          },
+          "native_eog": false,
+          "output_ids_sha256": "35c30727c34544142a873ffaa8c2adbff14c3b2accae029cff914d25613e2fd9"
+        },
+        {
+          "timings": {
+            "cache_n": 0,
+            "prompt_n": 154,
+            "prompt_ms": 1806.891,
+            "prompt_per_token_ms": 11.733058441558443,
+            "prompt_per_second": 85.22926950214483,
+            "predicted_n": 256,
+            "predicted_ms": 4166.926,
+            "predicted_per_token_ms": 16.340886274509806,
+            "predicted_per_second": 61.19619114906288
+          },
+          "native_eog": false,
+          "output_ids_sha256": "35c30727c34544142a873ffaa8c2adbff14c3b2accae029cff914d25613e2fd9"
+        },
+        {
+          "timings": {
+            "cache_n": 0,
+            "prompt_n": 154,
+            "prompt_ms": 1783.052,
+            "prompt_per_token_ms": 11.578259740259739,
+            "prompt_per_second": 86.36876546505655,
+            "predicted_n": 256,
+            "predicted_ms": 4181.738,
+            "predicted_per_token_ms": 16.398972549019607,
+            "predicted_per_second": 60.97943008385508
+          },
+          "native_eog": false,
+          "output_ids_sha256": "35c30727c34544142a873ffaa8c2adbff14c3b2accae029cff914d25613e2fd9"
+        },
+        {
+          "timings": {
+            "cache_n": 0,
+            "prompt_n": 154,
+            "prompt_ms": 1797.087,
+            "prompt_per_token_ms": 11.669396103896103,
+            "prompt_per_second": 85.69423739640875,
+            "predicted_n": 256,
+            "predicted_ms": 4187.733,
+            "predicted_per_token_ms": 16.422482352941177,
+            "predicted_per_second": 60.89213424065001
+          },
+          "native_eog": false,
+          "output_ids_sha256": "35c30727c34544142a873ffaa8c2adbff14c3b2accae029cff914d25613e2fd9"
+        }
+      ]
+    },
+    {
+      "name": "r21-deploy-deepseek-final",
+      "status": "SCREENING_COMPLETE",
+      "source_json_sha256": "119b22dd54346fcbbf8c4035c6651cc65affcfcc0ccd05a8e57940e20c4c1892",
+      "model": "DeepSeek-V4.1-Flash-1017-UD-IQ3_XXS-00001-of-00007.gguf",
+      "settings": {
+        "ctx": 131072,
+        "predict": 256,
+        "ngl": 41,
+        "moe_cache_mib": 20480,
+        "threads": 16,
+        "ubatch": 16,
+        "cpu_mask": "0xffff",
+        "cpu_strict": true,
+        "timeout": 7200,
+        "mtp": false,
+        "draft_max": 4,
+        "fill_tokens": 0,
+        "draft_cpu_moe": false,
+        "cache_type_k": "f16",
+        "cache_type_v": "f16",
+        "batch": 128
+      },
+      "runs": [
+        {
+          "timings": {
+            "cache_n": 0,
+            "prompt_n": 161,
+            "prompt_ms": 24640.973,
+            "prompt_per_token_ms": 153.04952173913045,
+            "prompt_per_second": 6.533832896939581,
+            "predicted_n": 256,
+            "predicted_ms": 21881.577,
+            "predicted_per_token_ms": 85.81010588235294,
+            "predicted_per_second": 11.65363904073276
+          },
+          "native_eog": false,
+          "output_ids_sha256": "2f7ddf26d29c28fb32f9987170445aaab1500b9948cadb2f87211d1f50b43cec"
+        },
+        {
+          "timings": {
+            "cache_n": 0,
+            "prompt_n": 161,
+            "prompt_ms": 14347.238,
+            "prompt_per_token_ms": 89.11327950310559,
+            "prompt_per_second": 11.221672073746879,
+            "predicted_n": 256,
+            "predicted_ms": 15156.371,
+            "predicted_per_token_ms": 59.43674901960784,
+            "predicted_per_second": 16.824607948696954
+          },
+          "native_eog": false,
+          "output_ids_sha256": "34f43c8b936a2b9992e7bcb01b38005e8205ac752cb4e52d6ec9b54d385b9d9d"
+        },
+        {
+          "timings": {
+            "cache_n": 0,
+            "prompt_n": 161,
+            "prompt_ms": 14433.275,
+            "prompt_per_token_ms": 89.64767080745341,
+            "prompt_per_second": 11.154779493912505,
+            "predicted_n": 256,
+            "predicted_ms": 12364.006,
+            "predicted_per_token_ms": 48.48629803921568,
+            "predicted_per_second": 20.62438339159654
+          },
+          "native_eog": false,
+          "output_ids_sha256": "bea29b74575529573d866dc1b2829af46c0b2a3f6961baa8dd40f9a03737f5bd"
+        },
+        {
+          "timings": {
+            "cache_n": 0,
+            "prompt_n": 161,
+            "prompt_ms": 8999.904,
+            "prompt_per_token_ms": 55.9000248447205,
+            "prompt_per_second": 17.889079705739082,
+            "predicted_n": 256,
+            "predicted_ms": 14926.226,
+            "predicted_per_token_ms": 58.53421960784314,
+            "predicted_per_second": 17.084023784712894
+          },
+          "native_eog": false,
+          "output_ids_sha256": "a813664ad4291e5baf73ba042cf090e7a6cd38c898c5f773e52b33243cc57d11"
+        }
+      ]
+    },
+    {
+      "name": "r21-qwen-host-kv-cache20",
+      "status": "SCREENING_COMPLETE",
+      "source_json_sha256": "b468b97d391146e449e8631dbbb20b74ff6a42bd81980f6a9467c239f508ee15",
+      "model": "Qwen3.8-Flash-Next-UD-Q4_K_XL-00001-of-00004.gguf",
+      "settings": {
+        "ctx": 131072,
+        "predict": 256,
+        "ngl": 49,
+        "moe_cache_mib": 20480,
+        "threads": 16,
+        "ubatch": 16,
+        "cpu_mask": "0xffff",
+        "cpu_strict": true,
+        "timeout": 7200,
+        "mtp": false,
+        "draft_max": 4,
+        "fill_tokens": 0,
+        "draft_cpu_moe": false,
+        "cache_type_k": "f16",
+        "cache_type_v": "f16",
+        "batch": 128
+      },
+      "runs": [
+        {
+          "timings": {
+            "cache_n": 0,
+            "prompt_n": 154,
+            "prompt_ms": 2066.257,
+            "prompt_per_token_ms": 13.417253246753248,
+            "prompt_per_second": 74.53090298060697,
+            "predicted_n": 256,
+            "predicted_ms": 4672.917,
+            "predicted_per_token_ms": 18.325164705882354,
+            "predicted_per_second": 54.5697687333201
+          },
+          "native_eog": false,
+          "output_ids_sha256": "35c30727c34544142a873ffaa8c2adbff14c3b2accae029cff914d25613e2fd9"
+        },
+        {
+          "timings": {
+            "cache_n": 0,
+            "prompt_n": 154,
+            "prompt_ms": 1814.49,
+            "prompt_per_token_ms": 11.782402597402598,
+            "prompt_per_second": 84.87233327271024,
+            "predicted_n": 256,
+            "predicted_ms": 4669.991,
+            "predicted_per_token_ms": 18.313690196078433,
+            "predicted_per_second": 54.603959622191994
+          },
+          "native_eog": false,
+          "output_ids_sha256": "35c30727c34544142a873ffaa8c2adbff14c3b2accae029cff914d25613e2fd9"
+        },
+        {
+          "timings": {
+            "cache_n": 0,
+            "prompt_n": 154,
+            "prompt_ms": 1886.269,
+            "prompt_per_token_ms": 12.2485,
+            "prompt_per_second": 81.64265012042291,
+            "predicted_n": 256,
+            "predicted_ms": 4752.122,
+            "predicted_per_token_ms": 18.63577254901961,
+            "predicted_per_second": 53.660238520812385
+          },
+          "native_eog": false,
+          "output_ids_sha256": "35c30727c34544142a873ffaa8c2adbff14c3b2accae029cff914d25613e2fd9"
+        },
+        {
+          "timings": {
+            "cache_n": 0,
+            "prompt_n": 154,
+            "prompt_ms": 1844.226,
+            "prompt_per_token_ms": 11.975493506493507,
+            "prompt_per_second": 83.5038655782968,
+            "predicted_n": 256,
+            "predicted_ms": 4624.371,
+            "predicted_per_token_ms": 18.134788235294117,
+            "predicted_per_second": 55.14263453343168
+          },
+          "native_eog": false,
+          "output_ids_sha256": "35c30727c34544142a873ffaa8c2adbff14c3b2accae029cff914d25613e2fd9"
+        }
+      ]
+    },
+    {
+      "name": "r21-qwen-host-kv-cache23",
+      "status": "SCREENING_COMPLETE",
+      "source_json_sha256": "f3481c014e981bc0e64e541cdfcf82d59b27064a7c2ccf9cf7d766e2d067288c",
+      "model": "Qwen3.8-Flash-Next-UD-Q4_K_XL-00001-of-00004.gguf",
+      "settings": {
+        "ctx": 131072,
+        "predict": 256,
+        "ngl": 49,
+        "moe_cache_mib": 23552,
+        "threads": 16,
+        "ubatch": 16,
+        "cpu_mask": "0xffff",
+        "cpu_strict": true,
+        "timeout": 7200,
+        "mtp": false,
+        "draft_max": 4,
+        "fill_tokens": 0,
+        "draft_cpu_moe": false,
+        "cache_type_k": "f16",
+        "cache_type_v": "f16",
+        "batch": 128
+      },
+      "runs": [
+        {
+          "timings": {
+            "cache_n": 0,
+            "prompt_n": 154,
+            "prompt_ms": 2282.669,
+            "prompt_per_token_ms": 14.822525974025973,
+            "prompt_per_second": 67.46488430867551,
+            "predicted_n": 256,
+            "predicted_ms": 4689.731,
+            "predicted_per_token_ms": 18.39110196078431,
+            "predicted_per_second": 54.37412081844354
+          },
+          "native_eog": false,
+          "output_ids_sha256": "2e85a71962e1e8dcb44b93af580b15bf0729d02dc773d032f7883e0b089dbeb5"
+        },
+        {
+          "timings": {
+            "cache_n": 0,
+            "prompt_n": 154,
+            "prompt_ms": 1662.094,
+            "prompt_per_token_ms": 10.792818181818182,
+            "prompt_per_second": 92.65420607980053,
+            "predicted_n": 256,
+            "predicted_ms": 4777.928,
+            "predicted_per_token_ms": 18.736972549019608,
+            "predicted_per_second": 53.37041495811573
+          },
+          "native_eog": false,
+          "output_ids_sha256": "2e85a71962e1e8dcb44b93af580b15bf0729d02dc773d032f7883e0b089dbeb5"
+        },
+        {
+          "timings": {
+            "cache_n": 0,
+            "prompt_n": 154,
+            "prompt_ms": 1681.802,
+            "prompt_per_token_ms": 10.920792207792207,
+            "prompt_per_second": 91.56844860453252,
+            "predicted_n": 256,
+            "predicted_ms": 4609.744,
+            "predicted_per_token_ms": 18.07742745098039,
+            "predicted_per_second": 55.31760548958901
+          },
+          "native_eog": false,
+          "output_ids_sha256": "2e85a71962e1e8dcb44b93af580b15bf0729d02dc773d032f7883e0b089dbeb5"
+        },
+        {
+          "timings": {
+            "cache_n": 0,
+            "prompt_n": 154,
+            "prompt_ms": 1750.128,
+            "prompt_per_token_ms": 11.364467532467533,
+            "prompt_per_second": 87.99356389932623,
+            "predicted_n": 256,
+            "predicted_ms": 4508.475,
+            "predicted_per_token_ms": 17.680294117647062,
+            "predicted_per_second": 56.56014506013674
+          },
+          "native_eog": false,
+          "output_ids_sha256": "2e85a71962e1e8dcb44b93af580b15bf0729d02dc773d032f7883e0b089dbeb5"
+        }
+      ]
+    },
+    {
+      "name": "r21-qwen-host-kv-off-cache20",
+      "status": "SCREENING_COMPLETE",
+      "source_json_sha256": "f6b931c4a62eaff0d3e17fb871072dda2d5384a21e938b1b4565bfa3b343a9b1",
+      "model": "Qwen3.8-Flash-Next-UD-Q4_K_XL-00001-of-00004.gguf",
+      "settings": {
+        "ctx": 131072,
+        "predict": 256,
+        "ngl": 49,
+        "moe_cache_mib": 20480,
+        "threads": 16,
+        "ubatch": 16,
+        "cpu_mask": "0xffff",
+        "cpu_strict": true,
+        "timeout": 7200,
+        "mtp": false,
+        "draft_max": 4,
+        "fill_tokens": 0,
+        "draft_cpu_moe": false,
+        "cache_type_k": "f16",
+        "cache_type_v": "f16",
+        "batch": 128
+      },
+      "runs": [
+        {
+          "timings": {
+            "cache_n": 0,
+            "prompt_n": 154,
+            "prompt_ms": 1941.832,
+            "prompt_per_token_ms": 12.609298701298702,
+            "prompt_per_second": 79.30655175112985,
+            "predicted_n": 256,
+            "predicted_ms": 4425.077,
+            "predicted_per_token_ms": 17.353243137254903,
+            "predicted_per_second": 57.62611588453715
+          },
+          "native_eog": false,
+          "output_ids_sha256": "35c30727c34544142a873ffaa8c2adbff14c3b2accae029cff914d25613e2fd9"
+        },
+        {
+          "timings": {
+            "cache_n": 0,
+            "prompt_n": 154,
+            "prompt_ms": 1805.33,
+            "prompt_per_token_ms": 11.722922077922078,
+            "prompt_per_second": 85.30296400104136,
+            "predicted_n": 256,
+            "predicted_ms": 4423.315,
+            "predicted_per_token_ms": 17.34633333333333,
+            "predicted_per_second": 57.649070889140845
+          },
+          "native_eog": false,
+          "output_ids_sha256": "35c30727c34544142a873ffaa8c2adbff14c3b2accae029cff914d25613e2fd9"
+        },
+        {
+          "timings": {
+            "cache_n": 0,
+            "prompt_n": 154,
+            "prompt_ms": 1807.837,
+            "prompt_per_token_ms": 11.739201298701298,
+            "prompt_per_second": 85.18467096314546,
+            "predicted_n": 256,
+            "predicted_ms": 4436.764,
+            "predicted_per_token_ms": 17.39907450980392,
+            "predicted_per_second": 57.47432137476774
+          },
+          "native_eog": false,
+          "output_ids_sha256": "35c30727c34544142a873ffaa8c2adbff14c3b2accae029cff914d25613e2fd9"
+        },
+        {
+          "timings": {
+            "cache_n": 0,
+            "prompt_n": 154,
+            "prompt_ms": 1804.573,
+            "prompt_per_token_ms": 11.718006493506493,
+            "prompt_per_second": 85.33874772591633,
+            "predicted_n": 256,
+            "predicted_ms": 4456.085,
+            "predicted_per_token_ms": 17.4748431372549,
+            "predicted_per_second": 57.225120256907125
+          },
+          "native_eog": false,
+          "output_ids_sha256": "35c30727c34544142a873ffaa8c2adbff14c3b2accae029cff914d25613e2fd9"
+        }
+      ]
+    }
+  ],
+  "strata": {
+    "status": "PROBE_COMPLETE",
+    "scope": "WITHIN_ENGINE_PROBE_NOT_CROSS_ENGINE_AB",
+    "source_json_sha256": "e6f9ea66593e5b2ffa9bbe9d1175e85d447e75d8444346a6c0c487df777b86f6",
+    "binary_sha256": "e4406b474c292c8b52621c803f523ae18dc42c905deda60d5f055740c7ef8925",
+    "prompt_ids_sha256": "ed3261e6b3c6df503cb479b77bcff42d60f3f448bac83baee8700b1fa0c5f934",
+    "pack_conversions": {
+      "total": 460,
+      "inexact": 196,
+      "compat_bf16": true
+    },
+    "explicit_environment": {
+      "STRATA_ROUTE_TAIL_SKIP": "0",
+      "STRATA_HC_Q8": "1"
+    },
+    "runs": [
+      {
+        "drafts_offered": 0,
+        "drafts_accepted": 0,
+        "timings": {
+          "prompt_n": 154,
+          "predicted_n": 256,
+          "prompt_ms": 349.1,
+          "predicted_ms": 2534.5,
+          "prompt_per_second": 441.1343454597536,
+          "predicted_per_second": 101.00611560465575
+        },
+        "expert_hits": 109285,
+        "expert_lookups": 122067,
+        "client_tg": 101.13036089278607
+      },
+      {
+        "drafts_offered": 0,
+        "drafts_accepted": 0,
+        "timings": {
+          "prompt_n": 154,
+          "predicted_n": 256,
+          "prompt_ms": 313.9,
+          "predicted_ms": 2163.2,
+          "prompt_per_second": 490.6021025804397,
+          "predicted_per_second": 118.3431952662722
+        },
+        "expert_hits": 115019,
+        "expert_lookups": 122827,
+        "client_tg": 118.35487684719807
+      },
+      {
+        "drafts_offered": 0,
+        "drafts_accepted": 0,
+        "timings": {
+          "prompt_n": 154,
+          "predicted_n": 256,
+          "prompt_ms": 326.4,
+          "predicted_ms": 2048.9,
+          "prompt_per_second": 471.81372549019613,
+          "predicted_per_second": 124.94509248865245
+        },
+        "expert_hits": 116606,
+        "expert_lookups": 122842,
+        "client_tg": 124.97952222779227
+      }
+    ],
+    "expert_cache_gib": 23.31,
+    "expert_cache_slots": 7988,
+    "kv_capacity": 131072,
+    "kv_gpu_cells": 32768,
+    "kv_pinned_gib": 3,
+    "pcie_gbps": 25.7,
+    "adaptive_pcie_fraction_after_cpu_measurement": 0.2,
+    "async_cache_selected": true,
+    "notes": "Same GGUF source and input IDs, different native packing/arithmetic and VRAM allocation; not controlled cross-engine quality-equivalent A/B."
+  },
+  "diagnostic_profile": {
+    "source_json_sha256": "e0a2823a7b7077a43355502f54b0f98d9beb3fd1420eb5bea65c68b6e7db1c28",
+    "scope": "Current Qwen diagnostic trace, not performance acceptance. Decode windows anchored to last kernel within each HTTP completion, using server predicted_ms; all intervals clipped. Host API durations overlap GPU work.",
+    "runs": [
+      {
+        "run": 0,
+        "decode_ms": 4436.407,
+        "window_start_ns": 55554342816,
+        "window_end_ns": 59990749816,
+        "last_kernel_to_http_end_ms": 6.098967,
+        "kernel_union_ms": 1910.20591,
+        "gpu_activity_union_ms": 3035.612875,
+        "copies": {
+          "8": {
+            "sum_ms": 56.258753,
+            "bytes": 2497994752,
+            "calls": 21484
+          },
+          "1": {
+            "sum_ms": 1051.032304,
+            "bytes": 23020307732,
+            "calls": 38454
+          },
+          "2": {
+            "sum_ms": 16.056991,
+            "bytes": 252782720,
+            "calls": 12494
+          }
+        },
+        "top_kernels": [
+          {
+            "name": "void mul_mat_vec_q<(ggml_type)8, (int)1, (bool)0, (bool)0, (bool)0>(const void *, const void *, const int *, ggml_cuda_mm_fusion_args_device, float *, unsigned int, uint3, unsigned int, unsigned int, unsigned int, uint3, unsigned int, unsigned int, unsigned int, uint3, unsigned int, unsigned int, unsigned int, unsigned int)",
+            "sum_ms": 788.140654,
+            "calls": 65280
+          },
+          {
+            "name": "void mul_mat_vec_f<float, float, (int)1, (int)256, (bool)0, (bool)0>(const T1 *, const float *, const int *, ggml_cuda_mm_fusion_args_device, float *, int, uint3, int, int, int, uint3, int, int, int, uint3, int, int, int, int)",
+            "sum_ms": 236.90057,
+            "calls": 67320
+          },
+          {
+            "name": "quantize_q8_1(const float *, void *, long, long, long, long, long, unsigned int, uint3)",
+            "sum_ms": 193.573081,
+            "calls": 151114
+          },
+          {
+            "name": "void mul_mat_vec_q<(ggml_type)12, (int)1, (bool)0, (bool)0, (bool)0>(const void *, const void *, const int *, ggml_cuda_mm_fusion_args_device, float *, unsigned int, uint3, unsigned int, unsigned int, unsigned int, uint3, unsigned int, unsigned int, unsigned int, uint3, unsigned int, unsigned int, unsigned int, unsigned int)",
+            "sum_ms": 180.296759,
+            "calls": 23970
+          },
+          {
+            "name": "void mul_mat_vec_q<(ggml_type)8, (int)1, (bool)0, (bool)1, (bool)0>(const void *, const void *, const int *, ggml_cuda_mm_fusion_args_device, float *, unsigned int, uint3, unsigned int, unsigned int, unsigned int, uint3, unsigned int, unsigned int, unsigned int, uint3, unsigned int, unsigned int, unsigned int, unsigned int)",
+            "sum_ms": 140.366429,
+            "calls": 38250
+          },
+          {
+            "name": "void mul_mat_vec_q<(ggml_type)7, (int)1, (bool)0, (bool)1, (bool)0>(const void *, const void *, const int *, ggml_cuda_mm_fusion_args_device, float *, unsigned int, uint3, unsigned int, unsigned int, unsigned int, uint3, unsigned int, unsigned int, unsigned int, uint3, unsigned int, unsigned int, unsigned int, unsigned int)",
+            "sum_ms": 97.393103,
+            "calls": 10965
+          },
+          {
+            "name": "void rms_norm_f32<(int)1024, (int)1, (bool)1, (bool)1, (bool)0, (bool)0>(const float *, float *, int, int, int, long, long, long, float, const float *, long, long, long, uint3, uint3, uint3, uint3, const float *, long, long, long, uint3, uint3, uint3, uint3, float)",
+            "sum_ms": 60.260647,
+            "calls": 25500
+          },
+          {
+            "name": "void mul_mat_vec_q<(ggml_type)8, (int)1, (bool)1, (bool)0, (bool)0>(const void *, const void *, const int *, ggml_cuda_mm_fusion_args_device, float *, unsigned int, uint3, unsigned int, unsigned int, unsigned int, uint3, unsigned int, unsigned int, unsigned int, uint3, unsigned int, unsigned int, unsigned int, unsigned int)",
+            "sum_ms": 50.295216,
+            "calls": 12240
+          },
+          {
+            "name": "void rms_norm_f32<(int)32, (int)1, (bool)1, (bool)0, (bool)0, (bool)1>(const float *, float *, int, int, int, long, long, long, float, const float *, long, long, long, uint3, uint3, uint3, uint3, const float *, long, long, long, uint3, uint3, uint3, uint3, float)",
+            "sum_ms": 42.436354,
+            "calls": 18360
+          },
+          {
+            "name": "void topk_moe_cuda<(int)512, (bool)0>(const float *, float *, int *, float *, int, int, float, float, topk_moe_config)",
+            "sum_ms": 40.715989,
+            "calls": 12240
+          },
+          {
+            "name": "void k_bin_bcast<&op_add, float, float, float, const float *>(const T2 *, const T3 *, T4 *, unsigned int, unsigned int, unsigned int, uint3, uint3, uint3, uint3, uint3, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int, T5...)",
+            "sum_ms": 36.469917,
+            "calls": 32640
+          },
+          {
+            "name": "void flash_attn_ext_f16<(int)256, (int)256, (int)1, (int)8, (bool)0, (bool)0, (bool)0>(const char *, const char *, const char *, const char *, const char *, const int *, float *, float2 *, float, float, float, float, unsigned int, float, int, uint3, int, int, int, int, int, int, int, int, int, int, int, long, int, int, long, int, int, int, int, int, long)",
+            "sum_ms": 33.498075,
+            "calls": 3060
+          },
+          {
+            "name": "void ssm_conv_f32<(bool)1, (unsigned long)128, (unsigned long)4>(const float *, const float *, const float *, int, int, int, int, float *, int, int, int, long)",
+            "sum_ms": 31.194549,
+            "calls": 9180
+          },
+          {
+            "name": "void k_get_rows_float_vec<float>(const T1 *, const int *, T1 *, long, long, uint3, unsigned long, unsigned long, unsigned long, unsigned long, unsigned long, unsigned long, unsigned long, unsigned long, unsigned long)",
+            "sum_ms": 28.683918,
+            "calls": 9180
+          },
+          {
+            "name": "void dsv4_hc_post_f32<(bool)0, (bool)1>(const float *, const float *, const float *, const float *, float *, long, long, long, long, long, long, long, long, long, long, long, long, long, long, long, long, float, float)",
+            "sum_ms": 27.282593,
+            "calls": 24225
+          },
+          {
+            "name": "void dsv4_hc_pre_f32<(bool)1>(const float *, const float *, float *, long, long, long, long, long, long, long, long, long, long, long, float)",
+            "sum_ms": 23.706099,
+            "calls": 24480
+          },
+          {
+            "name": "void gated_delta_net_cuda<(int)128, (bool)0, (bool)0, (int)4>(const float *, const float *, const float *, const float *, const float *, const float *, float *, float *, long, long, long, long, long, long, long, long, long, long, long, long, uint3, uint3, float, long, int)",
+            "sum_ms": 23.146713,
+            "calls": 9180
+          },
+          {
+            "name": "void scale_f32<float>(const T1 *, T1 *, float, float, unsigned int, uint3, uint3, uint3, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int)",
+            "sum_ms": 21.724894,
+            "calls": 28815
+          }
+        ],
+        "top_apis": [
+          {
+            "name": "cudaStreamSynchronize_v3020",
+            "sum_ms": 3073.700862,
+            "calls": 36463
+          },
+          {
+            "name": "cudaGraphLaunch_v10000",
+            "sum_ms": 194.716351,
+            "calls": 12399
+          },
+          {
+            "name": "cudaMemcpyAsync_v3020",
+            "sum_ms": 133.082645,
+            "calls": 51099
+          },
+          {
+            "name": "cudaLaunchKernelExC_v11060",
+            "sum_ms": 13.271581,
+            "calls": 8883
+          },
+          {
+            "name": "cudaGraphInstantiate_v12000",
+            "sum_ms": 7.089205,
+            "calls": 36
+          },
+          {
+            "name": "cudaGraphExecUpdate_v10020",
+            "sum_ms": 3.911909,
+            "calls": 50
+          },
+          {
+            "name": "cudaEventRecord_v3020",
+            "sum_ms": 3.503483,
+            "calls": 4547
+          },
+          {
+            "name": "cudaGraphExecDestroy_v10000",
+            "sum_ms": 1.470517,
+            "calls": 36
+          },
+          {
+            "name": "cudaLaunchKernel_v7000",
+            "sum_ms": 0.698492,
+            "calls": 431
+          },
+          {
+            "name": "cudaGraphDestroy_v10000",
+            "sum_ms": 0.39765,
+            "calls": 50
+          },
+          {
+            "name": "cudaMemcpy2DAsync_v3020",
+            "sum_ms": 0.275601,
+            "calls": 118
+          },
+          {
+            "name": "cudaMemsetAsync_v3020",
+            "sum_ms": 0.13967,
+            "calls": 36
+          },
+          {
+            "name": "cudaStreamEndCapture_v10000",
+            "sum_ms": 0.058622,
+            "calls": 50
+          },
+          {
+            "name": "cuKernelGetName",
+            "sum_ms": 0.052797,
+            "calls": 431
+          },
+          {
+            "name": "cudaStreamBeginCapture_v10000",
+            "sum_ms": 0.03086,
+            "calls": 50
+          }
+        ]
+      },
+      {
+        "run": 1,
+        "decode_ms": 4190.794,
+        "window_start_ns": 61883286738,
+        "window_end_ns": 66074080738,
+        "last_kernel_to_http_end_ms": 0.957656,
+        "kernel_union_ms": 1911.752385,
+        "gpu_activity_union_ms": 3026.957553,
+        "copies": {
+          "8": {
+            "sum_ms": 55.619222,
+            "bytes": 2496346112,
+            "calls": 20183
+          },
+          "1": {
+            "sum_ms": 1041.145128,
+            "bytes": 22881965332,
+            "calls": 38499
+          },
+          "2": {
+            "sum_ms": 16.016624,
+            "bytes": 252782720,
+            "calls": 12494
+          }
+        },
+        "top_kernels": [
+          {
+            "name": "void mul_mat_vec_q<(ggml_type)8, (int)1, (bool)0, (bool)0, (bool)0>(const void *, const void *, const int *, ggml_cuda_mm_fusion_args_device, float *, unsigned int, uint3, unsigned int, unsigned int, unsigned int, uint3, unsigned int, unsigned int, unsigned int, uint3, unsigned int, unsigned int, unsigned int, unsigned int)",
+            "sum_ms": 788.411613,
+            "calls": 65280
+          },
+          {
+            "name": "void mul_mat_vec_f<float, float, (int)1, (int)256, (bool)0, (bool)0>(const T1 *, const float *, const int *, ggml_cuda_mm_fusion_args_device, float *, int, uint3, int, int, int, uint3, int, int, int, uint3, int, int, int, int)",
+            "sum_ms": 236.867415,
+            "calls": 67320
+          },
+          {
+            "name": "quantize_q8_1(const float *, void *, long, long, long, long, long, unsigned int, uint3)",
+            "sum_ms": 193.952472,
+            "calls": 151215
+          },
+          {
+            "name": "void mul_mat_vec_q<(ggml_type)12, (int)1, (bool)0, (bool)0, (bool)0>(const void *, const void *, const int *, ggml_cuda_mm_fusion_args_device, float *, unsigned int, uint3, unsigned int, unsigned int, unsigned int, uint3, unsigned int, unsigned int, unsigned int, uint3, unsigned int, unsigned int, unsigned int, unsigned int)",
+            "sum_ms": 180.287628,
+            "calls": 23970
+          },
+          {
+            "name": "void mul_mat_vec_q<(ggml_type)8, (int)1, (bool)0, (bool)1, (bool)0>(const void *, const void *, const int *, ggml_cuda_mm_fusion_args_device, float *, unsigned int, uint3, unsigned int, unsigned int, unsigned int, uint3, unsigned int, unsigned int, unsigned int, uint3, unsigned int, unsigned int, unsigned int, unsigned int)",
+            "sum_ms": 140.276421,
+            "calls": 38250
+          },
+          {
+            "name": "void mul_mat_vec_q<(ggml_type)7, (int)1, (bool)0, (bool)1, (bool)0>(const void *, const void *, const int *, ggml_cuda_mm_fusion_args_device, float *, unsigned int, uint3, unsigned int, unsigned int, unsigned int, uint3, unsigned int, unsigned int, unsigned int, uint3, unsigned int, unsigned int, unsigned int, unsigned int)",
+            "sum_ms": 97.518676,
+            "calls": 10965
+          },
+          {
+            "name": "void rms_norm_f32<(int)1024, (int)1, (bool)1, (bool)1, (bool)0, (bool)0>(const float *, float *, int, int, int, long, long, long, float, const float *, long, long, long, uint3, uint3, uint3, uint3, const float *, long, long, long, uint3, uint3, uint3, uint3, float)",
+            "sum_ms": 60.329673,
+            "calls": 25500
+          },
+          {
+            "name": "void mul_mat_vec_q<(ggml_type)8, (int)1, (bool)1, (bool)0, (bool)0>(const void *, const void *, const int *, ggml_cuda_mm_fusion_args_device, float *, unsigned int, uint3, unsigned int, unsigned int, unsigned int, uint3, unsigned int, unsigned int, unsigned int, uint3, unsigned int, unsigned int, unsigned int, unsigned int)",
+            "sum_ms": 50.351012,
+            "calls": 12240
+          },
+          {
+            "name": "void rms_norm_f32<(int)32, (int)1, (bool)1, (bool)0, (bool)0, (bool)1>(const float *, float *, int, int, int, long, long, long, float, const float *, long, long, long, uint3, uint3, uint3, uint3, const float *, long, long, long, uint3, uint3, uint3, uint3, float)",
+            "sum_ms": 42.549648,
+            "calls": 18360
+          },
+          {
+            "name": "void topk_moe_cuda<(int)512, (bool)0>(const float *, float *, int *, float *, int, int, float, float, topk_moe_config)",
+            "sum_ms": 40.708161,
+            "calls": 12240
+          },
+          {
+            "name": "void k_bin_bcast<&op_add, float, float, float, const float *>(const T2 *, const T3 *, T4 *, unsigned int, unsigned int, unsigned int, uint3, uint3, uint3, uint3, uint3, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int, T5...)",
+            "sum_ms": 36.491486,
+            "calls": 32640
+          },
+          {
+            "name": "void flash_attn_ext_f16<(int)256, (int)256, (int)1, (int)8, (bool)0, (bool)0, (bool)0>(const char *, const char *, const char *, const char *, const char *, const int *, float *, float2 *, float, float, float, float, unsigned int, float, int, uint3, int, int, int, int, int, int, int, int, int, int, int, long, int, int, long, int, int, int, int, int, long)",
+            "sum_ms": 33.522005,
+            "calls": 3060
+          },
+          {
+            "name": "void ssm_conv_f32<(bool)1, (unsigned long)128, (unsigned long)4>(const float *, const float *, const float *, int, int, int, int, float *, int, int, int, long)",
+            "sum_ms": 31.270514,
+            "calls": 9180
+          },
+          {
+            "name": "void k_get_rows_float_vec<float>(const T1 *, const int *, T1 *, long, long, uint3, unsigned long, unsigned long, unsigned long, unsigned long, unsigned long, unsigned long, unsigned long, unsigned long, unsigned long)",
+            "sum_ms": 28.7791,
+            "calls": 9180
+          },
+          {
+            "name": "void dsv4_hc_post_f32<(bool)0, (bool)1>(const float *, const float *, const float *, const float *, float *, long, long, long, long, long, long, long, long, long, long, long, long, long, long, long, long, float, float)",
+            "sum_ms": 27.309939,
+            "calls": 24225
+          },
+          {
+            "name": "void dsv4_hc_pre_f32<(bool)1>(const float *, const float *, float *, long, long, long, long, long, long, long, long, long, long, long, float)",
+            "sum_ms": 23.683031,
+            "calls": 24480
+          },
+          {
+            "name": "void gated_delta_net_cuda<(int)128, (bool)0, (bool)0, (int)4>(const float *, const float *, const float *, const float *, const float *, const float *, float *, float *, long, long, long, long, long, long, long, long, long, long, long, long, uint3, uint3, float, long, int)",
+            "sum_ms": 23.155009,
+            "calls": 9180
+          },
+          {
+            "name": "void scale_f32<float>(const T1 *, T1 *, float, float, unsigned int, uint3, uint3, uint3, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int)",
+            "sum_ms": 21.703521,
+            "calls": 28815
+          }
+        ],
+        "top_apis": [
+          {
+            "name": "cudaStreamSynchronize_v3020",
+            "sum_ms": 3072.032074,
+            "calls": 36463
+          },
+          {
+            "name": "cudaGraphLaunch_v10000",
+            "sum_ms": 189.339308,
+            "calls": 12351
+          },
+          {
+            "name": "cudaMemcpyAsync_v3020",
+            "sum_ms": 131.793063,
+            "calls": 51244
+          },
+          {
+            "name": "cudaLaunchKernelExC_v11060",
+            "sum_ms": 20.968507,
+            "calls": 14789
+          },
+          {
+            "name": "cudaGraphInstantiate_v12000",
+            "sum_ms": 14.115432,
+            "calls": 72
+          },
+          {
+            "name": "cudaGraphExecUpdate_v10020",
+            "sum_ms": 6.219577,
+            "calls": 98
+          },
+          {
+            "name": "cudaGraphExecDestroy_v10000",
+            "sum_ms": 3.332202,
+            "calls": 72
+          },
+          {
+            "name": "cudaEventRecord_v3020",
+            "sum_ms": 2.530271,
+            "calls": 4535
+          },
+          {
+            "name": "cudaLaunchKernel_v7000",
+            "sum_ms": 1.111231,
+            "calls": 721
+          },
+          {
+            "name": "cudaGraphDestroy_v10000",
+            "sum_ms": 0.897751,
+            "calls": 98
+          },
+          {
+            "name": "cudaMemcpy2DAsync_v3020",
+            "sum_ms": 0.436722,
+            "calls": 198
+          },
+          {
+            "name": "cudaMemsetAsync_v3020",
+            "sum_ms": 0.184951,
+            "calls": 60
+          },
+          {
+            "name": "cudaStreamEndCapture_v10000",
+            "sum_ms": 0.125158,
+            "calls": 98
+          },
+          {
+            "name": "cuKernelGetName",
+            "sum_ms": 0.097856,
+            "calls": 721
+          },
+          {
+            "name": "cudaStreamBeginCapture_v10000",
+            "sum_ms": 0.056249,
+            "calls": 98
+          }
+        ]
+      },
+      {
+        "run": 2,
+        "decode_ms": 3637.912,
+        "window_start_ns": 67857552019,
+        "window_end_ns": 71495464019,
+        "last_kernel_to_http_end_ms": 0.803458,
+        "kernel_union_ms": 1911.376403,
+        "gpu_activity_union_ms": 3012.62691,
+        "copies": {
+          "8": {
+            "sum_ms": 55.616713,
+            "bytes": 2496346112,
+            "calls": 20183
+          },
+          "1": {
+            "sum_ms": 1027.150901,
+            "bytes": 22881965332,
+            "calls": 38484
+          },
+          "2": {
+            "sum_ms": 16.060456,
+            "bytes": 252782720,
+            "calls": 12494
+          }
+        },
+        "top_kernels": [
+          {
+            "name": "void mul_mat_vec_q<(ggml_type)8, (int)1, (bool)0, (bool)0, (bool)0>(const void *, const void *, const int *, ggml_cuda_mm_fusion_args_device, float *, unsigned int, uint3, unsigned int, unsigned int, unsigned int, uint3, unsigned int, unsigned int, unsigned int, uint3, unsigned int, unsigned int, unsigned int, unsigned int)",
+            "sum_ms": 788.260738,
+            "calls": 65280
+          },
+          {
+            "name": "void mul_mat_vec_f<float, float, (int)1, (int)256, (bool)0, (bool)0>(const T1 *, const float *, const int *, ggml_cuda_mm_fusion_args_device, float *, int, uint3, int, int, int, uint3, int, int, int, uint3, int, int, int, int)",
+            "sum_ms": 236.803714,
+            "calls": 67320
+          },
+          {
+            "name": "quantize_q8_1(const float *, void *, long, long, long, long, long, unsigned int, uint3)",
+            "sum_ms": 193.846244,
+            "calls": 151215
+          },
+          {
+            "name": "void mul_mat_vec_q<(ggml_type)12, (int)1, (bool)0, (bool)0, (bool)0>(const void *, const void *, const int *, ggml_cuda_mm_fusion_args_device, float *, unsigned int, uint3, unsigned int, unsigned int, unsigned int, uint3, unsigned int, unsigned int, unsigned int, uint3, unsigned int, unsigned int, unsigned int, unsigned int)",
+            "sum_ms": 180.194121,
+            "calls": 23970
+          },
+          {
+            "name": "void mul_mat_vec_q<(ggml_type)8, (int)1, (bool)0, (bool)1, (bool)0>(const void *, const void *, const int *, ggml_cuda_mm_fusion_args_device, float *, unsigned int, uint3, unsigned int, unsigned int, unsigned int, uint3, unsigned int, unsigned int, unsigned int, uint3, unsigned int, unsigned int, unsigned int, unsigned int)",
+            "sum_ms": 140.324298,
+            "calls": 38250
+          },
+          {
+            "name": "void mul_mat_vec_q<(ggml_type)7, (int)1, (bool)0, (bool)1, (bool)0>(const void *, const void *, const int *, ggml_cuda_mm_fusion_args_device, float *, unsigned int, uint3, unsigned int, unsigned int, unsigned int, uint3, unsigned int, unsigned int, unsigned int, uint3, unsigned int, unsigned int, unsigned int, unsigned int)",
+            "sum_ms": 97.475417,
+            "calls": 10965
+          },
+          {
+            "name": "void rms_norm_f32<(int)1024, (int)1, (bool)1, (bool)1, (bool)0, (bool)0>(const float *, float *, int, int, int, long, long, long, float, const float *, long, long, long, uint3, uint3, uint3, uint3, const float *, long, long, long, uint3, uint3, uint3, uint3, float)",
+            "sum_ms": 60.340867,
+            "calls": 25500
+          },
+          {
+            "name": "void mul_mat_vec_q<(ggml_type)8, (int)1, (bool)1, (bool)0, (bool)0>(const void *, const void *, const int *, ggml_cuda_mm_fusion_args_device, float *, unsigned int, uint3, unsigned int, unsigned int, unsigned int, uint3, unsigned int, unsigned int, unsigned int, uint3, unsigned int, unsigned int, unsigned int, unsigned int)",
+            "sum_ms": 50.345804,
+            "calls": 12240
+          },
+          {
+            "name": "void rms_norm_f32<(int)32, (int)1, (bool)1, (bool)0, (bool)0, (bool)1>(const float *, float *, int, int, int, long, long, long, float, const float *, long, long, long, uint3, uint3, uint3, uint3, const float *, long, long, long, uint3, uint3, uint3, uint3, float)",
+            "sum_ms": 42.464862,
+            "calls": 18360
+          },
+          {
+            "name": "void topk_moe_cuda<(int)512, (bool)0>(const float *, float *, int *, float *, int, int, float, float, topk_moe_config)",
+            "sum_ms": 40.710802,
+            "calls": 12240
+          },
+          {
+            "name": "void k_bin_bcast<&op_add, float, float, float, const float *>(const T2 *, const T3 *, T4 *, unsigned int, unsigned int, unsigned int, uint3, uint3, uint3, uint3, uint3, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int, T5...)",
+            "sum_ms": 36.489422,
+            "calls": 32640
+          },
+          {
+            "name": "void flash_attn_ext_f16<(int)256, (int)256, (int)1, (int)8, (bool)0, (bool)0, (bool)0>(const char *, const char *, const char *, const char *, const char *, const int *, float *, float2 *, float, float, float, float, unsigned int, float, int, uint3, int, int, int, int, int, int, int, int, int, int, int, long, int, int, long, int, int, int, int, int, long)",
+            "sum_ms": 33.481257,
+            "calls": 3060
+          },
+          {
+            "name": "void ssm_conv_f32<(bool)1, (unsigned long)128, (unsigned long)4>(const float *, const float *, const float *, int, int, int, int, float *, int, int, int, long)",
+            "sum_ms": 31.209812,
+            "calls": 9180
+          },
+          {
+            "name": "void k_get_rows_float_vec<float>(const T1 *, const int *, T1 *, long, long, uint3, unsigned long, unsigned long, unsigned long, unsigned long, unsigned long, unsigned long, unsigned long, unsigned long, unsigned long)",
+            "sum_ms": 28.722112,
+            "calls": 9180
+          },
+          {
+            "name": "void dsv4_hc_post_f32<(bool)0, (bool)1>(const float *, const float *, const float *, const float *, float *, long, long, long, long, long, long, long, long, long, long, long, long, long, long, long, long, float, float)",
+            "sum_ms": 27.308358,
+            "calls": 24225
+          },
+          {
+            "name": "void dsv4_hc_pre_f32<(bool)1>(const float *, const float *, float *, long, long, long, long, long, long, long, long, long, long, long, float)",
+            "sum_ms": 23.675942,
+            "calls": 24480
+          },
+          {
+            "name": "void gated_delta_net_cuda<(int)128, (bool)0, (bool)0, (int)4>(const float *, const float *, const float *, const float *, const float *, const float *, float *, float *, long, long, long, long, long, long, long, long, long, long, long, long, uint3, uint3, float, long, int)",
+            "sum_ms": 23.184239,
+            "calls": 9180
+          },
+          {
+            "name": "void scale_f32<float>(const T1 *, T1 *, float, float, unsigned int, uint3, uint3, uint3, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int)",
+            "sum_ms": 21.717586,
+            "calls": 28815
+          }
+        ],
+        "top_apis": [
+          {
+            "name": "cudaStreamSynchronize_v3020",
+            "sum_ms": 3054.717355,
+            "calls": 36463
+          },
+          {
+            "name": "cudaGraphLaunch_v10000",
+            "sum_ms": 179.504227,
+            "calls": 12351
+          },
+          {
+            "name": "cudaMemcpyAsync_v3020",
+            "sum_ms": 125.755426,
+            "calls": 51229
+          },
+          {
+            "name": "cudaLaunchKernelExC_v11060",
+            "sum_ms": 19.403576,
+            "calls": 14789
+          },
+          {
+            "name": "cudaGraphInstantiate_v12000",
+            "sum_ms": 14.310881,
+            "calls": 72
+          },
+          {
+            "name": "cudaGraphExecUpdate_v10020",
+            "sum_ms": 6.197433,
+            "calls": 98
+          },
+          {
+            "name": "cudaGraphExecDestroy_v10000",
+            "sum_ms": 3.041549,
+            "calls": 72
+          },
+          {
+            "name": "cudaEventRecord_v3020",
+            "sum_ms": 1.889703,
+            "calls": 4535
+          },
+          {
+            "name": "cudaLaunchKernel_v7000",
+            "sum_ms": 1.029532,
+            "calls": 721
+          },
+          {
+            "name": "cudaGraphDestroy_v10000",
+            "sum_ms": 0.862492,
+            "calls": 98
+          },
+          {
+            "name": "cudaMemcpy2DAsync_v3020",
+            "sum_ms": 0.38078,
+            "calls": 198
+          },
+          {
+            "name": "cudaMemsetAsync_v3020",
+            "sum_ms": 0.154368,
+            "calls": 60
+          },
+          {
+            "name": "cudaStreamEndCapture_v10000",
+            "sum_ms": 0.118034,
+            "calls": 98
+          },
+          {
+            "name": "cuKernelGetName",
+            "sum_ms": 0.075801,
+            "calls": 721
+          },
+          {
+            "name": "cudaStreamBeginCapture_v10000",
+            "sum_ms": 0.054335,
+            "calls": 98
+          }
+        ]
+      }
+    ],
+    "caution": "Host API timings overlap GPU work. Copy/kernel sums are not additive latency savings. This is a profiled earlier configuration, not the installed profile."
+  }
+}

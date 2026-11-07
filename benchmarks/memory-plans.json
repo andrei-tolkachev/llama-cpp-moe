@@ -1,0 +1,533 @@
+[
+  {
+    "name": "nov07-qwen-auto-context-plan",
+    "scope": "STARTUP_ONLY_NOT_LIVE_KV_RESIZING",
+    "native_context": 262144,
+    "ctx": 4096,
+    "cache_mib": 20992,
+    "input_tokens": 143,
+    "required_tokens": 1423,
+    "available_vram_mib": 31439,
+    "reserve_mib": 2048,
+    "estimated_gpu_mib": 25843,
+    "cache_cap_mib": 20992,
+    "measurements": [
+      {
+        "ctx": 131072,
+        "cache_mib": 20992,
+        "memory": {
+          "CUDA0": {
+            "model_mib": 4606,
+            "context_mib": 24941,
+            "compute_mib": 89
+          },
+          "Host": {
+            "model_mib": 101560,
+            "context_mib": 0,
+            "compute_mib": 5
+          }
+        }
+      },
+      {
+        "ctx": 4096,
+        "cache_mib": 10496,
+        "memory": {
+          "CUDA0": {
+            "model_mib": 4606,
+            "context_mib": 10725,
+            "compute_mib": 16
+          },
+          "Host": {
+            "model_mib": 101560,
+            "context_mib": 0,
+            "compute_mib": 3
+          }
+        }
+      },
+      {
+        "ctx": 4096,
+        "cache_mib": 15744,
+        "memory": {
+          "CUDA0": {
+            "model_mib": 4606,
+            "context_mib": 15969,
+            "compute_mib": 16
+          },
+          "Host": {
+            "model_mib": 101560,
+            "context_mib": 0,
+            "compute_mib": 3
+          }
+        }
+      },
+      {
+        "ctx": 4096,
+        "cache_mib": 18432,
+        "memory": {
+          "CUDA0": {
+            "model_mib": 4606,
+            "context_mib": 18657,
+            "compute_mib": 16
+          },
+          "Host": {
+            "model_mib": 101560,
+            "context_mib": 0,
+            "compute_mib": 3
+          }
+        }
+      },
+      {
+        "ctx": 4096,
+        "cache_mib": 19712,
+        "memory": {
+          "CUDA0": {
+            "model_mib": 4606,
+            "context_mib": 19939,
+            "compute_mib": 16
+          },
+          "Host": {
+            "model_mib": 101560,
+            "context_mib": 0,
+            "compute_mib": 3
+          }
+        }
+      },
+      {
+        "ctx": 4096,
+        "cache_mib": 20352,
+        "memory": {
+          "CUDA0": {
+            "model_mib": 4606,
+            "context_mib": 20578,
+            "compute_mib": 16
+          },
+          "Host": {
+            "model_mib": 101560,
+            "context_mib": 0,
+            "compute_mib": 3
+          }
+        }
+      },
+      {
+        "ctx": 4096,
+        "cache_mib": 20736,
+        "memory": {
+          "CUDA0": {
+            "model_mib": 4606,
+            "context_mib": 20964,
+            "compute_mib": 16
+          },
+          "Host": {
+            "model_mib": 101560,
+            "context_mib": 0,
+            "compute_mib": 3
+          }
+        }
+      },
+      {
+        "ctx": 4096,
+        "cache_mib": 20864,
+        "memory": {
+          "CUDA0": {
+            "model_mib": 4606,
+            "context_mib": 21089,
+            "compute_mib": 16
+          },
+          "Host": {
+            "model_mib": 101560,
+            "context_mib": 0,
+            "compute_mib": 3
+          }
+        }
+      },
+      {
+        "ctx": 4096,
+        "cache_mib": 20992,
+        "memory": {
+          "CUDA0": {
+            "model_mib": 4606,
+            "context_mib": 21221,
+            "compute_mib": 16
+          },
+          "Host": {
+            "model_mib": 101560,
+            "context_mib": 0,
+            "compute_mib": 3
+          }
+        }
+      },
+      {
+        "ctx": 4096,
+        "cache_mib": 20992,
+        "memory": {
+          "CUDA0": {
+            "model_mib": 4606,
+            "context_mib": 21221,
+            "compute_mib": 16
+          },
+          "Host": {
+            "model_mib": 101560,
+            "context_mib": 0,
+            "compute_mib": 3
+          }
+        }
+      }
+    ],
+    "precision_changed": false,
+    "input_truncated": false
+  },
+  {
+    "name": "nov07-qwen256-memory-plan",
+    "scope": "STARTUP_ONLY_NOT_LIVE_KV_RESIZING",
+    "native_context": 262144,
+    "ctx": 262144,
+    "cache_mib": 16768,
+    "input_tokens": null,
+    "required_tokens": null,
+    "available_vram_mib": 31440,
+    "reserve_mib": 2048,
+    "estimated_gpu_mib": 29336,
+    "cache_cap_mib": 20992,
+    "measurements": [
+      {
+        "ctx": 131072,
+        "cache_mib": 20992,
+        "memory": {
+          "CUDA0": {
+            "model_mib": 4606,
+            "context_mib": 24941,
+            "compute_mib": 89
+          },
+          "Host": {
+            "model_mib": 101560,
+            "context_mib": 0,
+            "compute_mib": 5
+          }
+        }
+      },
+      {
+        "ctx": 262144,
+        "cache_mib": 10496,
+        "memory": {
+          "CUDA0": {
+            "model_mib": 4606,
+            "context_mib": 18285,
+            "compute_mib": 175
+          },
+          "Host": {
+            "model_mib": 101560,
+            "context_mib": 0,
+            "compute_mib": 8
+          }
+        }
+      },
+      {
+        "ctx": 262144,
+        "cache_mib": 15744,
+        "memory": {
+          "CUDA0": {
+            "model_mib": 4606,
+            "context_mib": 23529,
+            "compute_mib": 175
+          },
+          "Host": {
+            "model_mib": 101560,
+            "context_mib": 0,
+            "compute_mib": 8
+          }
+        }
+      },
+      {
+        "ctx": 262144,
+        "cache_mib": 18432,
+        "memory": {
+          "CUDA0": {
+            "model_mib": 4606,
+            "context_mib": 26217,
+            "compute_mib": 175
+          },
+          "Host": {
+            "model_mib": 101560,
+            "context_mib": 0,
+            "compute_mib": 8
+          }
+        }
+      },
+      {
+        "ctx": 262144,
+        "cache_mib": 17024,
+        "memory": {
+          "CUDA0": {
+            "model_mib": 4606,
+            "context_mib": 24809,
+            "compute_mib": 175
+          },
+          "Host": {
+            "model_mib": 101560,
+            "context_mib": 0,
+            "compute_mib": 8
+          }
+        }
+      },
+      {
+        "ctx": 262144,
+        "cache_mib": 16384,
+        "memory": {
+          "CUDA0": {
+            "model_mib": 4606,
+            "context_mib": 24170,
+            "compute_mib": 175
+          },
+          "Host": {
+            "model_mib": 101560,
+            "context_mib": 0,
+            "compute_mib": 8
+          }
+        }
+      },
+      {
+        "ctx": 262144,
+        "cache_mib": 16640,
+        "memory": {
+          "CUDA0": {
+            "model_mib": 4606,
+            "context_mib": 24423,
+            "compute_mib": 175
+          },
+          "Host": {
+            "model_mib": 101560,
+            "context_mib": 0,
+            "compute_mib": 8
+          }
+        }
+      },
+      {
+        "ctx": 262144,
+        "cache_mib": 16768,
+        "memory": {
+          "CUDA0": {
+            "model_mib": 4606,
+            "context_mib": 24555,
+            "compute_mib": 175
+          },
+          "Host": {
+            "model_mib": 101560,
+            "context_mib": 0,
+            "compute_mib": 8
+          }
+        }
+      },
+      {
+        "ctx": 262144,
+        "cache_mib": 16896,
+        "memory": {
+          "CUDA0": {
+            "model_mib": 4606,
+            "context_mib": 24683,
+            "compute_mib": 175
+          },
+          "Host": {
+            "model_mib": 101560,
+            "context_mib": 0,
+            "compute_mib": 8
+          }
+        }
+      },
+      {
+        "ctx": 262144,
+        "cache_mib": 16768,
+        "memory": {
+          "CUDA0": {
+            "model_mib": 4606,
+            "context_mib": 24555,
+            "compute_mib": 175
+          },
+          "Host": {
+            "model_mib": 101560,
+            "context_mib": 0,
+            "compute_mib": 8
+          }
+        }
+      }
+    ],
+    "precision_changed": false,
+    "input_truncated": false
+  },
+  {
+    "name": "nov07-deepseek256-memory-plan",
+    "scope": "STARTUP_ONLY_NOT_LIVE_KV_RESIZING",
+    "native_context": 1048576,
+    "ctx": 262144,
+    "cache_mib": 20480,
+    "input_tokens": null,
+    "required_tokens": null,
+    "available_vram_mib": 31440,
+    "reserve_mib": 2048,
+    "estimated_gpu_mib": 29367,
+    "cache_cap_mib": 20480,
+    "measurements": [
+      {
+        "ctx": 131072,
+        "cache_mib": 20480,
+        "memory": {
+          "CUDA0": {
+            "model_mib": 8053,
+            "context_mib": 20827,
+            "compute_mib": 55
+          },
+          "Host": {
+            "model_mib": 368391,
+            "context_mib": 0,
+            "compute_mib": 12
+          }
+        }
+      },
+      {
+        "ctx": 262144,
+        "cache_mib": 10240,
+        "memory": {
+          "CUDA0": {
+            "model_mib": 8053,
+            "context_mib": 10978,
+            "compute_mib": 87
+          },
+          "Host": {
+            "model_mib": 368391,
+            "context_mib": 0,
+            "compute_mib": 19
+          }
+        }
+      },
+      {
+        "ctx": 262144,
+        "cache_mib": 15360,
+        "memory": {
+          "CUDA0": {
+            "model_mib": 8053,
+            "context_mib": 16103,
+            "compute_mib": 87
+          },
+          "Host": {
+            "model_mib": 368391,
+            "context_mib": 0,
+            "compute_mib": 19
+          }
+        }
+      },
+      {
+        "ctx": 262144,
+        "cache_mib": 17920,
+        "memory": {
+          "CUDA0": {
+            "model_mib": 8053,
+            "context_mib": 18665,
+            "compute_mib": 87
+          },
+          "Host": {
+            "model_mib": 368391,
+            "context_mib": 0,
+            "compute_mib": 19
+          }
+        }
+      },
+      {
+        "ctx": 262144,
+        "cache_mib": 19200,
+        "memory": {
+          "CUDA0": {
+            "model_mib": 8053,
+            "context_mib": 19946,
+            "compute_mib": 87
+          },
+          "Host": {
+            "model_mib": 368391,
+            "context_mib": 0,
+            "compute_mib": 19
+          }
+        }
+      },
+      {
+        "ctx": 262144,
+        "cache_mib": 19840,
+        "memory": {
+          "CUDA0": {
+            "model_mib": 8053,
+            "context_mib": 20615,
+            "compute_mib": 87
+          },
+          "Host": {
+            "model_mib": 368391,
+            "context_mib": 0,
+            "compute_mib": 19
+          }
+        }
+      },
+      {
+        "ctx": 262144,
+        "cache_mib": 20224,
+        "memory": {
+          "CUDA0": {
+            "model_mib": 8053,
+            "context_mib": 20993,
+            "compute_mib": 87
+          },
+          "Host": {
+            "model_mib": 368391,
+            "context_mib": 0,
+            "compute_mib": 19
+          }
+        }
+      },
+      {
+        "ctx": 262144,
+        "cache_mib": 20352,
+        "memory": {
+          "CUDA0": {
+            "model_mib": 8053,
+            "context_mib": 21116,
+            "compute_mib": 87
+          },
+          "Host": {
+            "model_mib": 368391,
+            "context_mib": 0,
+            "compute_mib": 19
+          }
+        }
+      },
+      {
+        "ctx": 262144,
+        "cache_mib": 20480,
+        "memory": {
+          "CUDA0": {
+            "model_mib": 8053,
+            "context_mib": 21227,
+            "compute_mib": 87
+          },
+          "Host": {
+            "model_mib": 368391,
+            "context_mib": 0,
+            "compute_mib": 19
+          }
+        }
+      },
+      {
+        "ctx": 262144,
+        "cache_mib": 20480,
+        "memory": {
+          "CUDA0": {
+            "model_mib": 8053,
+            "context_mib": 21227,
+            "compute_mib": 87
+          },
+          "Host": {
+            "model_mib": 368391,
+            "context_mib": 0,
+            "compute_mib": 19
+          }
+        }
+      }
+    ],
+    "precision_changed": false,
+    "input_truncated": false
+  }
+]

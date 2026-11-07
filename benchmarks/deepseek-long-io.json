@@ -1,0 +1,16 @@
+{
+  "scope": "Sampled interval wholly inside DeepSeek32768-token prefill; excludes load and parts at both boundaries",
+  "sampled_seconds": 694.3517801761627,
+  "process_read_gib": 1088.0922660827637,
+  "process_read_gib_per_s": 1.5670619664958672,
+  "io_samples": 55,
+  "gpu_utilization_median_percent": 12,
+  "gpu_utilization_range_percent": [
+    1,
+    52
+  ],
+  "gpu_samples": 333,
+  "pcie_generation": 5,
+  "pcie_width": 8,
+  "inference": "Repeated weight I/O and limited RAM residency are a major bottleneck in this long-input workload; this does not establish the best possible software or hardware ceiling."
+}

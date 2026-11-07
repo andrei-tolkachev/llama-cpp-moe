@@ -1,0 +1,12 @@
+{
+  "accepted": {
+    "bytes": 923272,
+    "device_code_sha256": "83fa59dd519d4b2b1ee791da17ebe58bff5755080b1c82e8281e2830c7edb926"
+  },
+  "retry": {
+    "bytes": 923272,
+    "device_code_sha256": "83fa59dd519d4b2b1ee791da17ebe58bff5755080b1c82e8281e2830c7edb926"
+  },
+  "device_code_identical": true,
+  "note": "One ptxas crash on an unchanged Flash Attention template; identical-command object retry succeeded. GPU device code equals the earlier accepted full build. Completion with four jobs is recorded separately."
+}

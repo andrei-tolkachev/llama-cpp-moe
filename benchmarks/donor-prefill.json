@@ -1,0 +1,80 @@
+{
+  "scope": "Historical short-prompt measurements; different runners and engine internals, not causal engine-only A/B",
+  "rows": [
+    {
+      "name": "Maya DeepSeek same source Q3 GGUF",
+      "context_capacity": 131072,
+      "source_json_sha256": "0ab9bf19650d960c25dc581988363fb8861b300335cc0dcffccf73cbedf0d07e",
+      "first": {
+        "prompt_n": 161,
+        "predicted_n": 256,
+        "prompt_ms": 7929.0,
+        "predicted_ms": 21902.0,
+        "prompt_per_second": 20.31,
+        "predicted_per_second": 11.64
+      },
+      "subsequent": {
+        "prompt_n": 161,
+        "predicted_n": 256,
+        "prompt_ms": 6014.0,
+        "predicted_ms": 15267.0,
+        "prompt_per_second": 26.77,
+        "predicted_per_second": 16.7
+      }
+    },
+    {
+      "name": "Maya DeepSeek EXL3 different quantization",
+      "context_capacity": 131072,
+      "source_json_sha256": "aaebf98cd9d8cc506f23a1ce29545cdf1e220e54f83eb83a0e37dee1d005e154",
+      "first": {
+        "prompt_n": 161,
+        "predicted_n": 256,
+        "prompt_ms": 12925.0,
+        "predicted_ms": 24376.0,
+        "prompt_per_second": 12.46,
+        "predicted_per_second": 10.46
+      },
+      "subsequent": {
+        "prompt_n": 161,
+        "predicted_n": 256,
+        "prompt_ms": 5245.0,
+        "predicted_ms": 14666.0,
+        "prompt_per_second": 30.7,
+        "predicted_per_second": 17.39
+      }
+    },
+    {
+      "name": "Strata Qwen native pack",
+      "context_capacity": 131072,
+      "kv_resident": 32768,
+      "source_json_sha256": "e6f9ea66593e5b2ffa9bbe9d1175e85d447e75d8444346a6c0c487df777b86f6",
+      "runs": [
+        {
+          "prompt_n": 154,
+          "predicted_n": 256,
+          "prompt_ms": 349.1,
+          "predicted_ms": 2534.5,
+          "prompt_per_second": 441.1343454597536,
+          "predicted_per_second": 101.00611560465575
+        },
+        {
+          "prompt_n": 154,
+          "predicted_n": 256,
+          "prompt_ms": 313.9,
+          "predicted_ms": 2163.2,
+          "prompt_per_second": 490.6021025804397,
+          "predicted_per_second": 118.3431952662722
+        },
+        {
+          "prompt_n": 154,
+          "predicted_n": 256,
+          "prompt_ms": 326.4,
+          "predicted_ms": 2048.9,
+          "prompt_per_second": 471.81372549019613,
+          "predicted_per_second": 124.94509248865245
+        }
+      ],
+      "quantization_limit": "Native pack contains conversions that do not preserve all source GGML values exactly; see LIMITATIONS.md"
+    }
+  ]
+}

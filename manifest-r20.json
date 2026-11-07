@@ -1,0 +1,613 @@
+{
+  "schema_version": 1,
+  "release_id": "llama-portable-source-r20-20261103",
+  "upstream": {
+    "repository": "https://github.com/ggml-org/llama.cpp.git",
+    "base_commit": "dde879bc4f954b809892fd0d660515f42536394a"
+  },
+  "patches": [
+    {
+      "id": "P01-moe-cache-observability",
+      "file": "0001-moe-cache-observability.patch",
+      "sha256": "e14ecd7465af8a856a05146745b74bc89896381b1586d1155f588ff7987b41db",
+      "targets": [
+        {
+          "path": "src/llama-moe-cache.cpp",
+          "before_sha256": "2c8dd1c781a7e63c4a0f81547a0ff8f2af427749b59d2c0c8dff19f560446d70",
+          "after_sha256": "3e8e6d02fce1ef8c63b47d94bebcacc2cbb69547818c8959de1b062d584759ac"
+        }
+      ]
+    },
+    {
+      "id": "P02-moe-plan-reuse",
+      "file": "0002-moe-plan-reuse.patch",
+      "sha256": "702b5e901aeee6f5b136703dc3e4089a3ee95629799e6bda738a0df5792c51d3",
+      "targets": [
+        {
+          "path": "src/llama-moe-cache.cpp",
+          "before_sha256": "3e8e6d02fce1ef8c63b47d94bebcacc2cbb69547818c8959de1b062d584759ac",
+          "after_sha256": "0c3465925aed5fb8ee9f3be8c19f2956b2e9bcaa003d1058e6445b78597debc8"
+        }
+      ]
+    },
+    {
+      "id": "P03-dsv4-hc-post-layer-policy",
+      "file": "0003-dsv4-hc-post-layer-policy.patch",
+      "sha256": "88c4758c4ba52e6d00291fae8a56a7693f3d178264ae8751ff05352be7ab2061",
+      "targets": [
+        {
+          "path": "src/llama-cparams.h",
+          "before_sha256": "9f924d1edc672e0d1512ac5342a67aedae5e0807db8e4e694ce97ad3348935df",
+          "after_sha256": "9c40e11c06f1826f37a76bee75f1588295f0f8d8263a66771f9325d3655e83f7"
+        },
+        {
+          "path": "src/llama-context.cpp",
+          "before_sha256": "63645057d8f017d651544499fc1f3bcff5997cf25270b06479558ebfb5f9f3d2",
+          "after_sha256": "536aff8251ddb16f48d0ddcc24e309ec5785661b210bd36a65ab367f355ec097"
+        },
+        {
+          "path": "src/llama-graph.h",
+          "before_sha256": "0502b531fb610bc94ea0b398b0e7233de048aece69317b9e01d1a95398f271b8",
+          "after_sha256": "2b637854e8c8b5709e30486210df1a5ac48358b73d03e8802fb375cf6a608296"
+        },
+        {
+          "path": "src/models/deepseek4.cpp",
+          "before_sha256": "2d911ec83c383c38d18c59ef296fa90567036e1efb0c13f0ca867eb9ce709e80",
+          "after_sha256": "b92dff1059f13892b6f8834b09976a319c3f1f45cbfed8205877606728509537"
+        }
+      ]
+    },
+    {
+      "id": "P04-moe-upload-staging",
+      "file": "0004-moe-upload-staging.patch",
+      "sha256": "30df431411d5164f5b2f7725bc9bbf42b65f5061ed2c2b067c118eba91aadb73",
+      "targets": [
+        {
+          "path": "src/llama-moe-cache.cpp",
+          "before_sha256": "0c3465925aed5fb8ee9f3be8c19f2956b2e9bcaa003d1058e6445b78597debc8",
+          "after_sha256": "3699832313666b1312fa11bae6367d29ac6f982bea46ba505361364d36f9eb47"
+        }
+      ]
+    },
+    {
+      "id": "P05-hash-input-scratch",
+      "file": "0005-hash-input-scratch.patch",
+      "sha256": "6dcb7809c001244991bdde8a397d3554c90057866f80913f93d06a7c903e8e6f",
+      "targets": [
+        {
+          "path": "src/models/qwen4exp.cpp",
+          "before_sha256": "2ca357af9d433b70a7b67d61cc2a87547838fd8cb25c875c008990c6b6a3562f",
+          "after_sha256": "2a97a59526fe324ba07ec2608936df6ad51a4d48e36e7fb85aa995ec4b28cf22"
+        },
+        {
+          "path": "src/models/deepseek41.cpp",
+          "before_sha256": "7bb456802be2a753edd60194cfa8d830af3ebbbda00a4bad6b262f7e4323bffd",
+          "after_sha256": "5d1f21e2f3974539a3acd0e5533a3cc7149a00b3a6dd9ecf7d918f6ef13411fd"
+        }
+      ]
+    },
+    {
+      "id": "P06-prefetch-unique-row-planner",
+      "file": "0006-prefetch-unique-row-planner.patch",
+      "sha256": "492cf0046162cb9e0c255fa349568343547bb27d966a502ce5b27478a1872faf",
+      "targets": [
+        {
+          "path": "src/llama-impl.cpp",
+          "before_sha256": "abd5851762a157ae477588537e0cfe8dddfa1d2a2efb596d17efa4a19b45c769",
+          "after_sha256": "267bd1117af6532d128e596f0800234a17bf16bac54da5faaf2211bbf0ae51ce"
+        }
+      ]
+    },
+    {
+      "id": "P08-deepseek41-engram-graph-stage",
+      "file": "0007-deepseek41-engram-graph-stage.patch",
+      "sha256": "8cbd12f99d41170899dd3b6c335f4b4b90705e6b7a634fc597b01a38e01e7708",
+      "targets": [
+        {
+          "path": "src/models/deepseek41.cpp",
+          "before_sha256": "5d1f21e2f3974539a3acd0e5533a3cc7149a00b3a6dd9ecf7d918f6ef13411fd",
+          "after_sha256": "d33ce3f47dd380eab0e584255c9d90b38eece37bfce3dd364fb373323b35bfb3"
+        }
+      ]
+    },
+    {
+      "id": "P09B-moe-async-upload-pipeline-integration",
+      "file": "0008-moe-async-upload-pipeline-integration.patch",
+      "sha256": "8cd232cbb22576836fccabbbad9fb327e03f5fe6fe71ae568c26e74b0091ca87",
+      "targets": [
+        {
+          "path": "src/llama-moe-cache.cpp",
+          "before_sha256": "3699832313666b1312fa11bae6367d29ac6f982bea46ba505361364d36f9eb47",
+          "after_sha256": "de4dbda52b8f9c874256bfa1214c662745bc9b45f505d853987e172c89d317bc"
+        }
+      ]
+    },
+    {
+      "id": "P12-moe-shared-fill-plan",
+      "file": "0009-moe-shared-fill-plan.patch",
+      "sha256": "a581d5c6a8e09333b702bf8bd54b1d3e2ed9be8b7c7d7e903b43457b452b7646",
+      "targets": [
+        {
+          "path": "src/llama-moe-cache.cpp",
+          "before_sha256": "de4dbda52b8f9c874256bfa1214c662745bc9b45f505d853987e172c89d317bc",
+          "after_sha256": "9f0be92ae48ffde618c731fafe32044c001477a91bc79642b11afb5b900e06ce"
+        }
+      ]
+    },
+    {
+      "id": "P13-engram-model-owned-async-cache",
+      "file": "0010-engram-model-async-cache.patch",
+      "sha256": "1a5d4d5a68012216da95d62ac77dcd90d804324463f620a1012749a087acf5ff",
+      "targets": [
+        {
+          "path": "src/models/models.h",
+          "before_sha256": "7d28f36ce485af64557f45e28871e6cfdfdc795362ce5188b63226639ae9b337",
+          "after_sha256": "d07a181506bc747becf7a072e48fb47bf0f1db78c6b8fc6487857674f7e6e07b"
+        },
+        {
+          "path": "src/models/deepseek41.cpp",
+          "before_sha256": "d33ce3f47dd380eab0e584255c9d90b38eece37bfce3dd364fb373323b35bfb3",
+          "after_sha256": "fa50d7ebbd40def98ab2d80acfb4e7babc6ce9f0ed1c067012ef6caa55248381"
+        }
+      ]
+    },
+    {
+      "id": "P14A-moe-upload-scheduler-admission",
+      "file": "0011-moe-cpu-gpu-scheduler-admission.patch",
+      "sha256": "ba4acaaf6f2b4aaa2344080804eed4ceed81e4272238337a4ee41ffb63c83180",
+      "targets": [
+        {
+          "path": "src/llama-moe-cache.cpp",
+          "before_sha256": "9f0be92ae48ffde618c731fafe32044c001477a91bc79642b11afb5b900e06ce",
+          "after_sha256": "8bf5cfc429b925d545372c4953ef6bc7b3cf2f6188a8b6169fe2f222faf36468"
+        }
+      ]
+    },
+    {
+      "id": "P14B-moe-upload-event-completion",
+      "file": "0012-moe-backend-event-completion-lifetime.patch",
+      "sha256": "7989ae53582dc1c62723f279b95663642246468f1259e936107436e39955162d",
+      "targets": [
+        {
+          "path": "src/llama-moe-cache.cpp",
+          "before_sha256": "8bf5cfc429b925d545372c4953ef6bc7b3cf2f6188a8b6169fe2f222faf36468",
+          "after_sha256": "396cc786f27b7d93c271b010b1a441e74cc2fd36d00eef2241e7766b27ec54b3"
+        },
+        {
+          "path": "src/llama-moe-cache.h",
+          "before_sha256": "92a8718aec03a556f5bdde7f4f113facef3ab2d095709a946ee090d8fd8e4645",
+          "after_sha256": "f7349aab1ea4a6a05b72b1fbd5aae82a257669786d56b9d7d7d503b7dc5c5351"
+        },
+        {
+          "path": "src/llama-context.cpp",
+          "before_sha256": "536aff8251ddb16f48d0ddcc24e309ec5785661b210bd36a65ab367f355ec097",
+          "after_sha256": "583d39eb39c74c9407a7b1a39fb322fad69b3aa123c4f78fdb3c6babc2756721"
+        }
+      ]
+    },
+    {
+      "id": "P15A-cuda-dsv4-hc-post-input-reuse",
+      "file": "0013-cuda-dsv4-hc-post-input-reuse.patch",
+      "sha256": "fbc5083dcf27cda34854cb951be0b92a974b4b8e5eb234758982979fbb9c6d2a",
+      "targets": [
+        {
+          "path": "ggml/src/ggml-cuda/dsv4-hc.cu",
+          "before_sha256": "2aeec1e31381d99296bf2f9a0403cb414595afd3cac44e3def6821a9b5676726",
+          "after_sha256": "83845b1ef1c56975ef506565c13ae60db4e50e76810cc451a6c8bab89e031b6e"
+        }
+      ]
+    },
+    {
+      "id": "P15B-cuda-mmq-moe-tile-cache",
+      "file": "0014-cuda-mmq-moe-tile-cache.patch",
+      "sha256": "a3b0873a453ac055b34e616875d0ddeda4ccb10e73b1b08404242f6cafb43dfb",
+      "targets": [
+        {
+          "path": "ggml/src/ggml-cuda/mmq.cu",
+          "before_sha256": "1d7ddfa9a6904359122e31bff474229052f0573136c1ed010d1bc27b773fc0b1",
+          "after_sha256": "f5e3ac1a632204bf53f5ca244b46c2825ec23730044a21d757cd5f12c722e04e"
+        }
+      ]
+    },
+    {
+      "id": "P15C-cuda-mmq-host-selection-probe",
+      "file": "0015-cuda-mmq-selection-host-probe.patch",
+      "sha256": "e228f90c7db30fd1e39f8c7c728d3d6fdb21356e03d444b6749d9632ecb6d373",
+      "targets": [
+        {
+          "path": "ggml/src/ggml-cuda/mmq.cu",
+          "before_sha256": "f5e3ac1a632204bf53f5ca244b46c2825ec23730044a21d757cd5f12c722e04e",
+          "after_sha256": "5922d903d14d6ce7029916bb7e63adf0e69936e20d9a16de5e7618baf317603c"
+        }
+      ]
+    },
+    {
+      "id": "P16A-mtp-bounded-verify-window",
+      "file": "0016-mtp-bounded-verify-window.patch",
+      "sha256": "284d06117c017b90030095ec369a96cbb4c479af091b21c63415ecc81f0f88ae",
+      "targets": [
+        {
+          "path": "common/speculative.cpp",
+          "before_sha256": "667f3e71026a4701d4c3e6338ca25ba38b7f83d6a41ae9f9c33763beb12a64ad",
+          "after_sha256": "599de41e84f9e8024447792fbc7d6428757fec99443033784941a43fe2a2a342"
+        }
+      ]
+    },
+    {
+      "id": "P16B-mtp-rewind-acceptance-guard",
+      "file": "0017-mtp-checkpoint-rewind-guard.patch",
+      "sha256": "670d443a1cc3200f71db63f48169965ff5b61146fefd60b5fbf4fde8fc794e80",
+      "targets": [
+        {
+          "path": "common/speculative.cpp",
+          "before_sha256": "599de41e84f9e8024447792fbc7d6428757fec99443033784941a43fe2a2a342",
+          "after_sha256": "9a6a91af429cd0b6d28f89b470720f74ba6153cec5f76d4e408174da99664f78"
+        },
+        {
+          "path": "common/speculative.h",
+          "before_sha256": "1e30df3a472901844f000d2c77cb27e450d0eaf2028a8469116d79da23c7271b",
+          "after_sha256": "f68c3c6fb9a8eb7f2d4a909d383440b8650952a6ba0a59ddedb4ccd545085ddf"
+        },
+        {
+          "path": "tools/server/server-context.cpp",
+          "before_sha256": "5fae51fa9164f0e5c3e185a4d8834bc805d58ae6de1a4269929cdcbe840c9551",
+          "after_sha256": "dddada4d786b6f8f07eaa036b4721f8ba6bd1581d480d770deb738df9481a53c"
+        }
+      ]
+    },
+    {
+      "id": "R19-moe-incomplete-upload-recovery",
+      "file": "0018-moe-incomplete-upload-recovery.patch",
+      "sha256": "90b03e95be981c9c7b0f2ec9e2ffde32a4afa31697fe47660f6723441256e0a2",
+      "targets": [
+        {
+          "path": "src/llama-moe-cache.cpp",
+          "before_sha256": "396cc786f27b7d93c271b010b1a441e74cc2fd36d00eef2241e7766b27ec54b3",
+          "after_sha256": "1d8d7ab976e828f30a3ad223b86ab43ad7f193dde7146b19948093951765fa6e"
+        }
+      ]
+    },
+    {
+      "id": "R19-mtp-verify-row-order",
+      "file": "0019-mtp-verify-row-order.patch",
+      "sha256": "7bc8db6c0bd538525d37425f4f93aaafcb61beb4f47556b1848229c349641fd3",
+      "targets": [
+        {
+          "path": "common/speculative.cpp",
+          "before_sha256": "9a6a91af429cd0b6d28f89b470720f74ba6153cec5f76d4e408174da99664f78",
+          "after_sha256": "07b82182a5cd568e3f48b823d91aecc4137dab8fd7a138119a3bda7d7ac90b13"
+        }
+      ]
+    },
+    {
+      "id": "P20-moe-skip-no-pack-worker",
+      "file": "0020-moe-skip-no-pack-worker.patch",
+      "sha256": "d6125a3b89b69f1e9caf8427e1c4677bc0f08027c28036ac60fde443c90c46fa",
+      "targets": [
+        {
+          "path": "src/llama-moe-cache.cpp",
+          "before_sha256": "1d8d7ab976e828f30a3ad223b86ab43ad7f193dde7146b19948093951765fa6e",
+          "after_sha256": "f05b1381c4439722d52ecc8692fe1ef6d7ecb64467361cd763c1d3d84432820d"
+        }
+      ]
+    },
+    {
+      "id": "R20-moe-runtime-accounting",
+      "file": "0021-moe-runtime-accounting.patch",
+      "sha256": "8a2392a0830f2d1839bf44481565e4cc119eb6e924d4050497a2796e855fdfa4",
+      "targets": [
+        {
+          "path": "src/llama-context.cpp",
+          "before_sha256": "583d39eb39c74c9407a7b1a39fb322fad69b3aa123c4f78fdb3c6babc2756721",
+          "after_sha256": "a698264898c3a0ed8775287354d6e37cf2b218b05b4ccd011c2afaf504369f5d"
+        },
+        {
+          "path": "src/llama-context.h",
+          "before_sha256": "c5123eb0b1b4426737a70a3a616d8ba48b646143b596fa3f42d20ab57b2fb9e5",
+          "after_sha256": "071dfa78fc508d3667654b37774e8d6df828b0642837b7a2ea8d5782075c02fb"
+        },
+        {
+          "path": "src/llama-moe-cache.cpp",
+          "before_sha256": "f05b1381c4439722d52ecc8692fe1ef6d7ecb64467361cd763c1d3d84432820d",
+          "after_sha256": "ece1e1d9dd4741dc1e4fff329d17e1de6a49871dda3a33729b1157e1c43404d3"
+        },
+        {
+          "path": "src/llama-moe-cache.h",
+          "before_sha256": "f7349aab1ea4a6a05b72b1fbd5aae82a257669786d56b9d7d7d503b7dc5c5351",
+          "after_sha256": "d52b794d9a2a13993964cd691c09a7f37c7b81214ddf59daae251408bff9e038"
+        }
+      ]
+    },
+    {
+      "id": "R20-cpu-iq3-xxs-signmask",
+      "file": "0022-cpu-iq3-xxs-signmask.patch",
+      "sha256": "fba5e2041c3c7a7204552e3900f6a9cab1141afc52f8c01cec2875a9999824e9",
+      "targets": [
+        {
+          "path": "ggml/src/ggml-cpu/arch/x86/quants.c",
+          "before_sha256": "777d0a4c1caf0e5b2589e8e77eb376a10691155deb5589d981838f9fef286c52",
+          "after_sha256": "85349ff32db0f65d77ae95bebe5c5a957f5a135f2208cfe7c80bd1ce9d35413d"
+        },
+        {
+          "path": "ggml/src/ggml-cpu/ggml-cpu.cpp",
+          "before_sha256": "ccf382d3fbf126b5ddb5850a0a970656fb24e00587da4003419439277c91cd01",
+          "after_sha256": "33193f5f847a2d259ae3d802a9e2fd0acfd0659c90fa1a1e076dbdcb0203a781"
+        },
+        {
+          "path": "ggml/src/ggml-cpu/ggml-cpu-impl.h",
+          "before_sha256": "fd3e46b3e95c8aadda96f17ed13a4a2e83d122d7108c5b56951c80cc29224950",
+          "after_sha256": "55c476b2c6e6e2e90cd148e773626205ebb71c29f1b2e85071c63ea5500d95c9"
+        }
+      ]
+    },
+    {
+      "id": "R20-moe-mapped-demand-readahead",
+      "file": "0023-moe-mapped-demand-readahead.patch",
+      "sha256": "b71604e277d1862fb7808f646525f95ae3e37865d9c81cc2bcd39b33edecd4ff",
+      "targets": [
+        {
+          "path": "src/llama-model.cpp",
+          "before_sha256": "343f8cf1ad14e39a11883793d9c1404880d3ee4da691a7847256f60198341153",
+          "after_sha256": "81da8fca5ad3567febeabec01a5f22429d37c7650d129df709c9ba39be8e9bad"
+        },
+        {
+          "path": "src/llama-model.h",
+          "before_sha256": "08f673b1d7cd591d4d656d2fc10f505eb4b68d6513e756e7d8677fcafba8368c",
+          "after_sha256": "9099d64f4ee98be68549e8727f5e555d6c221c6783ab85fccbc7a983c67816b1"
+        },
+        {
+          "path": "src/llama-moe-cache.cpp",
+          "before_sha256": "ece1e1d9dd4741dc1e4fff329d17e1de6a49871dda3a33729b1157e1c43404d3",
+          "after_sha256": "da46dfd17f168029d4b168d0c94cb110cff34ba94017dcb83eb48e351466cf1c"
+        }
+      ]
+    },
+    {
+      "id": "R20-mtp-interleaved-predecessor",
+      "file": "0024-mtp-interleaved-predecessor.patch",
+      "sha256": "3c77f44ad57932aa397cf4a49e3afad1e4adbe68454f3334f38a2a3f55b643ad",
+      "targets": [
+        {
+          "path": "common/speculative.cpp",
+          "before_sha256": "07b82182a5cd568e3f48b823d91aecc4137dab8fd7a138119a3bda7d7ac90b13",
+          "after_sha256": "4d1fe759fcb541948acff85e043ec0506d70d2f89940e6cf0351bac88ba93c1e"
+        }
+      ]
+    }
+  ],
+  "source_components": [
+    {
+      "id": "P07-engram-row-cache-standalone",
+      "status": "SOURCE_COMPONENT_USED_BY_P08_GRAPH_STAGE",
+      "paths": [
+        {
+          "path": "modules/engram/row_cache.hpp",
+          "sha256": "578d5151c7c6b31dba4a325536c1cc480cde5ea0b8c2dfda6a2ef4959417382b"
+        },
+        {
+          "path": "modules/engram/mapped_rows.hpp",
+          "sha256": "a9d9cefda466be094a2d566d8d3bc593746c3022c112ff4f5bff0ae944c53993"
+        }
+      ]
+    },
+    {
+      "id": "P08-engram-graph-stage",
+      "status": "OPTIONAL_GRAPH_INTEGRATION_SOURCE_UNVALIDATED_CUDA",
+      "paths": [
+        {
+          "path": "modules/engram/graph_stage.hpp",
+          "sha256": "bdfa99525530d5afa0dd0efb496a229fad1ea53ec7911bf5d20f4864d55cd0d7"
+        }
+      ]
+    },
+    {
+      "id": "P10-moe-persistent-worker",
+      "status": "OPTIONAL_VENDOR_P09B_PIPELINE_REUSES_ONE_WORKER_PER_SCHEDULER_THREAD_UNVALIDATED_CUDA",
+      "paths": [
+        {
+          "path": "modules/moe/upload_types.hpp",
+          "sha256": "77baeff1082187438fce7b5fb7d4268e0f6b27f5f8afe8036110a00c78a9e46a"
+        },
+        {
+          "path": "modules/moe/upload_worker.hpp",
+          "sha256": "5af0d3dc9a8fe63af2720f68f2f52c0b491fa079cfd052761f19b9ba7e473240"
+        }
+      ]
+    },
+    {
+      "id": "P09-moe-upload-pipeline-standalone",
+      "status": "SOURCE_MODULE_USED_BY_P09B_CANDIDATE_UNVALIDATED_CUDA",
+      "paths": [
+        {
+          "path": "modules/moe/upload_pipeline.hpp",
+          "sha256": "57dabf16d45e8dba657861c79fd0d3a43c2163d75b8a8c11b994121b9bd53cff"
+        }
+      ]
+    },
+    {
+      "id": "P11-moe-fixed-control",
+      "status": "OPTIONAL_HEADER_CONTROL_OPTIMIZATION_UNVALIDATED_CUDA",
+      "paths": [
+        {
+          "path": "modules/moe/upload_worker.hpp",
+          "sha256": "5af0d3dc9a8fe63af2720f68f2f52c0b491fa079cfd052761f19b9ba7e473240"
+        }
+      ]
+    },
+    {
+      "id": "P12-moe-immutable-fill-plan",
+      "status": "OPT_IN_PATCHED_LLAMACACHE_HOST_VERIFIED_NOT_CUDA",
+      "paths": [
+        {
+          "path": "modules/moe/upload_plan.hpp",
+          "sha256": "80bfc56fb3fec6be4e856a3d212319ab8f6dfdb9d977daa77cb47a181c554fcd"
+        }
+      ]
+    },
+    {
+      "id": "P13-engram-model-cache-host",
+      "status": "OPT_IN_MODEL_OWNED_ENGRAM_CACHE_WITH_OPTIONAL_WORKER_HOST_TESTED_GPU_UNVALIDATED",
+      "paths": [
+        {
+          "path": "modules/engram/model_cache.hpp",
+          "sha256": "edb6fcac6113aa2f988a27a439921496df11e006f1fc69e930562792de038230"
+        },
+        {
+          "path": "modules/engram/graph_stage.hpp",
+          "sha256": "bdfa99525530d5afa0dd0efb496a229fad1ea53ec7911bf5d20f4864d55cd0d7"
+        },
+        {
+          "path": "modules/engram/row_cache.hpp",
+          "sha256": "578d5151c7c6b31dba4a325536c1cc480cde5ea0b8c2dfda6a2ef4959417382b"
+        }
+      ]
+    },
+    {
+      "id": "P14A-moe-upload-admission-host",
+      "status": "OPT_IN_CPU_ADMISSION_FOR_EXISTING_P09B_PIPELINE_NO_GPU_EVENT_NATIVE_UNVALIDATED",
+      "paths": [
+        {
+          "path": "modules/moe/upload_scheduler.hpp",
+          "sha256": "73ee91cd93ac8834f1492dc77ba09ee735d4c931cb156265d89459c53071b8e1"
+        }
+      ]
+    },
+    {
+      "id": "P14B-moe-backend-event-lifetime",
+      "status": "OPT_IN_BACKEND_EVENT_LIFETIME_PATCHED_HOST_AND_SOURCE_BRIDGE_TESTED_CUDA_UNVALIDATED",
+      "paths": [
+        {
+          "path": "modules/moe/upload_completion.hpp",
+          "sha256": "6eb547ba49ae78823239df2e1bc73c30caed542a7f9aad33276238dccaf8d6e3"
+        }
+      ]
+    },
+    {
+      "id": "P15A-cuda-hc-post-input-reuse",
+      "status": "OPT_IN_CUDA_KERNEL_HOST_MATH_TESTED_NVCC_GPU_UNVALIDATED",
+      "paths": [
+        {
+          "path": "modules/cuda/hc_post_reuse.cuh",
+          "sha256": "f7369c4bf12b3c14812ad5dcf750d4006c05a56b5667ece533e08c064f9a1f28"
+        }
+      ]
+    },
+    {
+      "id": "P15B-cuda-mmq-moe-tile-cache",
+      "status": "OPT_IN_HOST_DISPATCH_MEMOIZATION_GPU_UNVALIDATED",
+      "paths": [
+        {
+          "path": "modules/cuda/mmq_tile_cache.hpp",
+          "sha256": "9b4e8f81a3faf62bc7623c83c21f3749527e5fec9d9ed1b48bf31707ef67e4bf"
+        }
+      ]
+    },
+    {
+      "id": "P15C-cuda-mmq-host-selection-probe",
+      "status": "OPT_IN_CPU_HOST_SELECTOR_TRACE_WITH_BOUNDED_JSONL_NVCC_GPU_UNVALIDATED",
+      "paths": [
+        {
+          "path": "modules/cuda/mmq_select_probe.hpp",
+          "sha256": "23096484d60e3179a7949dc5dcbb3e30896a2e325e7a71ef698f7b137170cb13"
+        }
+      ]
+    },
+    {
+      "id": "P16A-mtp-verify-window-core",
+      "status": "OPT_IN_SINGLE_MTP_HOST_CAPTURE_REDUCTION_SOURCE_VERIFIED_NO_NATIVE_INFERENCE",
+      "paths": [
+        {
+          "path": "modules/speculative/mtp_verify_window.hpp",
+          "sha256": "2dfba391801e93298e7f0cf1f30916166958b60e9af301ddca85784129b99cec"
+        }
+      ]
+    },
+    {
+      "id": "P16B-mtp-checkpoint-host-guard",
+      "status": "OPT_IN_SINGLE_MTP_HOST_CHECKPOINT_REWIND_SOURCE_TESTED_NOT_NATIVE_KV_ROLLBACK",
+      "paths": [
+        {
+          "path": "modules/speculative/mtp_rewind_guard.hpp",
+          "sha256": "8fd54488bb7abad481c12902e8fb443c12f4c99d70138e1561445dd49a174634"
+        }
+      ]
+    }
+  ],
+  "additional_files": [
+    {
+      "source": "modules/engram/row_cache.hpp",
+      "destination": "src/llama-experimental/row_cache.hpp",
+      "sha256": "578d5151c7c6b31dba4a325536c1cc480cde5ea0b8c2dfda6a2ef4959417382b"
+    },
+    {
+      "source": "modules/engram/mapped_rows.hpp",
+      "destination": "src/llama-experimental/mapped_rows.hpp",
+      "sha256": "a9d9cefda466be094a2d566d8d3bc593746c3022c112ff4f5bff0ae944c53993"
+    },
+    {
+      "source": "modules/engram/graph_stage.hpp",
+      "destination": "src/llama-experimental/graph_stage.hpp",
+      "sha256": "bdfa99525530d5afa0dd0efb496a229fad1ea53ec7911bf5d20f4864d55cd0d7"
+    },
+    {
+      "source": "modules/moe/upload_types.hpp",
+      "destination": "src/llama-experimental/upload_types.hpp",
+      "sha256": "77baeff1082187438fce7b5fb7d4268e0f6b27f5f8afe8036110a00c78a9e46a"
+    },
+    {
+      "source": "modules/moe/upload_worker.hpp",
+      "destination": "src/llama-experimental/upload_worker.hpp",
+      "sha256": "5af0d3dc9a8fe63af2720f68f2f52c0b491fa079cfd052761f19b9ba7e473240"
+    },
+    {
+      "source": "modules/moe/upload_pipeline.hpp",
+      "destination": "src/llama-experimental/upload_pipeline.hpp",
+      "sha256": "57dabf16d45e8dba657861c79fd0d3a43c2163d75b8a8c11b994121b9bd53cff"
+    },
+    {
+      "source": "modules/moe/upload_plan.hpp",
+      "destination": "src/llama-experimental/upload_plan.hpp",
+      "sha256": "80bfc56fb3fec6be4e856a3d212319ab8f6dfdb9d977daa77cb47a181c554fcd"
+    },
+    {
+      "source": "modules/engram/model_cache.hpp",
+      "destination": "src/llama-experimental/model_cache.hpp",
+      "sha256": "edb6fcac6113aa2f988a27a439921496df11e006f1fc69e930562792de038230"
+    },
+    {
+      "source": "modules/moe/upload_scheduler.hpp",
+      "sha256": "73ee91cd93ac8834f1492dc77ba09ee735d4c931cb156265d89459c53071b8e1",
+      "destination": "src/llama-experimental/upload_scheduler.hpp"
+    },
+    {
+      "source": "modules/moe/upload_completion.hpp",
+      "destination": "src/llama-experimental/upload_completion.hpp",
+      "sha256": "6eb547ba49ae78823239df2e1bc73c30caed542a7f9aad33276238dccaf8d6e3"
+    },
+    {
+      "source": "modules/cuda/hc_post_reuse.cuh",
+      "destination": "ggml/src/ggml-cuda/llama-experimental/hc_post_reuse.cuh",
+      "sha256": "f7369c4bf12b3c14812ad5dcf750d4006c05a56b5667ece533e08c064f9a1f28"
+    },
+    {
+      "source": "modules/cuda/mmq_tile_cache.hpp",
+      "destination": "ggml/src/ggml-cuda/llama-experimental/mmq_tile_cache.hpp",
+      "sha256": "9b4e8f81a3faf62bc7623c83c21f3749527e5fec9d9ed1b48bf31707ef67e4bf"
+    },
+    {
+      "source": "modules/cuda/mmq_select_probe.hpp",
+      "destination": "ggml/src/ggml-cuda/llama-experimental/mmq_select_probe.hpp",
+      "sha256": "23096484d60e3179a7949dc5dcbb3e30896a2e325e7a71ef698f7b137170cb13"
+    },
+    {
+      "source": "modules/speculative/mtp_verify_window.hpp",
+      "destination": "common/llama-experimental/mtp_verify_window.hpp",
+      "sha256": "2dfba391801e93298e7f0cf1f30916166958b60e9af301ddca85784129b99cec"
+    },
+    {
+      "source": "modules/speculative/mtp_rewind_guard.hpp",
+      "destination": "common/llama-experimental/mtp_rewind_guard.hpp",
+      "sha256": "8fd54488bb7abad481c12902e8fb443c12f4c99d70138e1561445dd49a174634"
+    }
+  ]
+}

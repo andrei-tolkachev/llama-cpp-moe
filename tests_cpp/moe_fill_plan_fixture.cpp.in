@@ -1,0 +1,149 @@
+// P12 host-only parity fixture. The original P04 helper is extracted from
+// the unmodified 0004 patch; it is NOT a reimplementation of the oracle.
+// Both paths enqueue deferred buffer reads and must produce identical bytes,
+// staging decisions, calls, call-saving statistics and destination slots.
+#include "moe/upload_plan.hpp"
+#include <algorithm>
+#include <atomic>
+#include <cstddef>
+#include <cstdint>
+#include <cstdlib>
+#include <cstring>
+#include <iostream>
+#include <limits>
+#include <random>
+#include <stdexcept>
+#include <thread>
+#include <vector>
+
+#define CHECK(e) do { if (!(e)) {std::cerr << #e << " failed at " << __LINE__ << "\n"; std::abort();} } while(0)
+#define GGML_ASSERT(e) CHECK(e)
+struct moe_cache_slru {
+    struct fill {int32_t expert; int32_t slot;};
+};
+@@P04_HELPER@@
+
+struct queued {
+    const uint8_t * data;
+    size_t offset;
+    size_t size;
+    bool staged;
+};
+
+static bool within(const uint8_t * p, const uint8_t * base, size_t length) {
+    if (!base) return false;
+    return p >= base && p < base + length;
+}
+
+static void compare(const std::vector<moe_cache_slru::fill> & fills,
+                    size_t width, size_t capacity, bool use_staging,
+                    size_t initial_used, uint32_t salt) {
+    llama_exp::moe_fill_plan plan(fills);
+    std::vector<uint8_t> source(2048*width);
+    for (size_t k=0;k<source.size();++k) source[k]=uint8_t((k*71 + salt*13)%251);
+    std::vector<uint8_t> a(capacity,0xd1), b(capacity,0xd1);
+    uint8_t * sa=use_staging && capacity ? a.data() : nullptr;
+    uint8_t * sb=use_staging && capacity ? b.data() : nullptr;
+    size_t ua=initial_used, ub=initial_used;
+    std::vector<queued> qa, qb;
+    auto old=llama_moe_cache_upload_experts(source.data(),width,fills,sa,capacity,ua,
+        [&](const uint8_t * data,size_t offset,size_t size) {
+            qa.push_back({data,offset,size,within(data,sa,capacity)});
+        });
+    auto fresh=plan.upload(source.data(),width,sb,capacity,ub,
+        [&](const uint8_t * data,size_t offset,size_t size) {
+            qb.push_back({data,offset,size,within(data,sb,capacity)});
+        });
+    CHECK(old.bytes==fresh.bytes && old.staged_bytes==fresh.staged_bytes);
+    CHECK(old.calls==fresh.calls && old.calls_saved==fresh.calls_saved);
+    CHECK(ua==ub && qa.size()==qb.size());
+    CHECK(a==b);  // exact staged payload including untouched sentinel bytes
+    std::vector<uint8_t> va(source.size(),0xba), vb(source.size(),0xba);
+    for (size_t i=0;i<qa.size();++i) {
+        CHECK(qa[i].offset==qb[i].offset && qa[i].size==qb[i].size);
+        CHECK(qa[i].staged==qb[i].staged);
+        CHECK(qa[i].size<=va.size() && qa[i].offset<=va.size()-qa[i].size);
+        // Fake backend reads sources only now, after all prepares have ended.
+        CHECK(std::memcmp(qa[i].data,qb[i].data,qa[i].size)==0);
+        std::memcpy(va.data()+qa[i].offset,qa[i].data,qa[i].size);
+        std::memcpy(vb.data()+qb[i].offset,qb[i].data,qb[i].size);
+    }
+    CHECK(va==vb);
+    std::vector<uint8_t> independent(source.size(),0xba);
+    for (const auto & f:fills) {
+        CHECK(f.expert>=0 && f.slot>=0);
+        std::memcpy(independent.data()+size_t(f.slot)*width,
+                    source.data()+size_t(f.expert)*width,width);
+    }
+    CHECK(independent==va);
+}
+
+static std::vector<moe_cache_slru::fill> make_fills(std::mt19937 & rng,size_t count,int mode) {
+    std::vector<int32_t> ids,slots;
+    for (int i=0;i<350;++i) ids.push_back(i);
+    std::shuffle(ids.begin(),ids.end(),rng);
+    ids.resize(count);
+    std::sort(ids.begin(),ids.end());
+    for (size_t i=0;i<count;++i) slots.push_back(int32_t(i));
+    if (mode%4==0) std::shuffle(slots.begin(),slots.end(),rng);
+    if (mode%4==1) std::reverse(slots.begin(),slots.end());
+    if (mode%4==2) std::shuffle(ids.begin(),ids.end(),rng);
+    std::vector<moe_cache_slru::fill> fills;
+    for (size_t i=0;i<count;++i) fills.push_back({ids[i],slots[i]});
+    return fills;
+}
+
+static void expect_invalid() {
+    const std::vector<moe_cache_slru::fill> neg={{-1,0}};
+    bool threw=false;
+    try { llama_exp::moe_fill_plan x(neg); } catch(const std::invalid_argument&) {threw=true;}
+    CHECK(threw);
+    threw=false;
+    try { llama_exp::moe_fill_plan x(std::vector<moe_cache_slru::fill>{{1,-2}}); } catch(const std::invalid_argument&) {threw=true;}
+    CHECK(threw);
+    const llama_exp::moe_fill_plan empty(std::vector<moe_cache_slru::fill>{});
+    CHECK(empty.run_count()==0);
+    size_t used=0;
+    uint8_t source=0;
+    CHECK(empty.upload(&source,1,nullptr,0,used,[](const uint8_t*,size_t,size_t){CHECK(false);}).bytes==0);
+}
+
+int main(int argc,char **argv) {
+    CHECK(argc==2);
+    const bool enabled=std::string(argv[1])=="enabled";
+    CHECK(enabled || std::string(argv[1])=="disabled");
+    CHECK(llama_exp::moe_fill_plan::enabled()==enabled);
+    expect_invalid();
+    std::mt19937 rng(0x13579bdfu);
+    for (int n=0;n<1500;++n) {
+        const size_t count=n%77;
+        const auto fills=make_fills(rng,count,n);
+        const size_t width=32u<<unsigned(n%5);
+        const size_t capacity=(size_t(n%17)*1024u);
+        const size_t used=capacity ? (size_t(n%5)*capacity/8) : 0;
+        compare(fills,width,capacity,(n%9!=0),used,uint32_t(n));
+    }
+    // Several banks with differing widths read one plan concurrently.
+    auto fills=make_fills(rng,100,7);
+    const llama_exp::moe_fill_plan shared(fills);
+    std::atomic<int> successes{0};
+    std::vector<std::thread> workers;
+    for(int bank=0;bank<4;++bank) {
+        workers.emplace_back([&,bank] {
+            const size_t width=64u*(size_t(bank)+1);
+            std::vector<uint8_t> src(2048*width),stage(12288,0xab);
+            for(size_t j=0;j<src.size();++j) src[j]=uint8_t((j+bank*9)%251);
+            size_t used=0;
+            size_t bytes=0;
+            auto stats=shared.upload(src.data(),width,stage.data(),stage.size(),used,
+                [&](const uint8_t * data,size_t offset,size_t size) {
+                    CHECK(data && offset<=src.size()-size); bytes+=size;
+                });
+            CHECK(stats.bytes==100*width && bytes==100*width);
+            ++successes;
+        });
+    }
+    for(auto & w:workers)w.join();
+    CHECK(successes==4);
+    std::cout<<"P12 exact P04 comparison PASS: 1500 parity cases, 4 parallel banks, invalid-input gates; enabled="<<enabled<<"\n";
+}

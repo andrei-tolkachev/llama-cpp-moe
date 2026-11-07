@@ -1,0 +1,161 @@
+// Executable host fixture: compiled with the *actual* upstream function body.
+// Only GGML tensor layout and the final OS prefetch call are mocked.
+#include <algorithm>
+#include <cassert>
+#include <cstdint>
+#include <cstdlib>
+#include <cstring>
+#include <iostream>
+#include <limits>
+#include <random>
+#include <set>
+#include <stdexcept>
+#include <string>
+#include <vector>
+
+struct ggml_backend_buffer { bool host = true; };
+struct ggml_tensor {
+    void * data = nullptr;
+    ggml_backend_buffer * buffer = nullptr;
+    int type = 0;
+    int64_t ne[4] = {};
+    size_t nb[4] = {};
+};
+struct llama_memory_range { const void * addr; size_t size; };
+using llama_memory_ranges = std::vector<llama_memory_range>;
+static bool ggml_backend_buffer_is_host(const ggml_backend_buffer * b) { return b->host; }
+static bool ggml_is_matrix(const ggml_tensor *) { return true; }
+static size_t ggml_row_size(int, int64_t n) { return size_t(n)*2; }
+#define GGML_ASSERT(c) do { if (!(c)) { throw std::runtime_error("bad input"); } } while (0)
+
+static std::set<uintptr_t> expected_pages;
+static size_t captured_range_inputs = 0;
+static size_t calls = 0;
+constexpr size_t page_size = 4096;
+static uintptr_t round_down(uintptr_t v) { return v/page_size*page_size; }
+static uintptr_t round_up(uintptr_t v) { return ((v + page_size-1)/page_size)*page_size; }
+
+static void llama_prefetch(llama_memory_ranges ranges) {
+    ++calls;
+    captured_range_inputs = ranges.size();
+    std::set<uintptr_t> seen;
+    for (const auto & range : ranges) {
+        uintptr_t first = round_down(reinterpret_cast<uintptr_t>(range.addr));
+        uintptr_t last = round_up(reinterpret_cast<uintptr_t>(range.addr) + range.size);
+        for (uintptr_t p = first; p < last; p += page_size) {
+            seen.insert(p);
+        }
+    }
+    if (seen != expected_pages) {
+        throw std::runtime_error("prefetched page set differs from byte-exact reference");
+    }
+}
+
+@@PREFETCH_FUNCTION@@
+
+static std::vector<char> storage(12*1024*1024);
+static uint64_t n_cases = 0;
+static uint64_t shortened = 0;
+static uint64_t input_ranges = 0;
+
+static void run_case(int64_t n_rows, size_t row_bytes, size_t stride, size_t count,
+                     uint32_t seed, int distribution, size_t addr_offset) {
+    ggml_backend_buffer backing;
+    const uintptr_t raw = reinterpret_cast<uintptr_t>(storage.data());
+    const uintptr_t base = round_up(raw) + addr_offset;
+    const auto * ptr = reinterpret_cast<const char *>(base);
+    GGML_ASSERT(base + size_t(n_rows)*stride + page_size <= raw + storage.size());
+    ggml_tensor tensor;
+    tensor.data = const_cast<char *>(ptr);
+    tensor.buffer = &backing;
+    tensor.ne[0] = row_bytes/2;
+    tensor.ne[1] = n_rows;
+    tensor.nb[1] = stride;
+    std::mt19937 rng(seed);
+    std::vector<int32_t> rows;
+    rows.reserve(count);
+    for (size_t i = 0; i < count; ++i) {
+        int32_t id = 0;
+        switch (distribution) {
+            case 0: id = int32_t(rng()%n_rows); break;
+            case 1: id = int32_t((i*73)%16); break;
+            case 2: id = int32_t(i%n_rows); break;
+            case 3: id = int32_t((i/8)%n_rows); break;
+            default: id = int32_t((rng()%8 + i/64*8)%n_rows); break;
+        }
+        rows.push_back(id);
+    }
+    expected_pages.clear();
+    for (int32_t row : rows) {
+        uintptr_t b = base + size_t(row)*stride;
+        uintptr_t e = b + row_bytes;
+        for (uintptr_t p = round_down(b); p < round_up(e); p += page_size) {
+            expected_pages.insert(p);
+        }
+    }
+    const size_t previous_calls = calls;
+    llama_prefetch_rows(&tensor, rows.data(), rows.size());
+    GGML_ASSERT(calls == previous_calls + (rows.empty() ? 0 : 1));
+    if (!rows.empty()) {
+        input_ranges += captured_range_inputs;
+        if (captured_range_inputs < count) ++shortened;
+    }
+    ++n_cases;
+}
+
+int main() {
+    try {
+        const bool quick = std::getenv("LLAMA_PREFETCH_TEST_QUICK") != nullptr;
+        // Multiple strides and odd aligned table bases stress address coalescing.
+        for (size_t row_bytes : { size_t(64), size_t(256), size_t(640) }) {
+            for (size_t extra : { size_t(0), size_t(8), size_t(64) }) {
+                for (size_t address_shift : { size_t(0), size_t(73), size_t(2048) }) {
+                    for (size_t count : { size_t(0), size_t(1), size_t(127), size_t(128),
+                                          size_t(129), size_t(256), size_t(1024), size_t(4096) }) {
+                        if (quick && (count > 1024 || extra == 64 || address_shift == 2048)) continue;
+                        for (int distribution=0; distribution<5; ++distribution) {
+                            run_case(8192, row_bytes, row_bytes+extra, count,
+                                     107 + uint32_t(count), distribution, address_shift);
+                        }
+                    }
+                }
+            }
+        }
+        // Covers upper bound, fallback above upper bound and a single huge input.
+        if (!quick) {
+            run_case(8192, 256, 256, 262144, 5, 1, 0);
+            run_case(8192, 256, 256, 262145, 5, 1, 0);
+        }
+        // Invalid input must be rejected by both paths; NEVER ignore bad indexes.
+        ggml_backend_buffer backing;
+        ggml_tensor tensor;
+        tensor.data = storage.data(); tensor.buffer = &backing;
+        tensor.ne[0] = 128; tensor.ne[1] = 10; tensor.nb[1] = 256;
+        std::vector<int32_t> invalid(256, 3); invalid[0] = -1;
+        bool rejected = false;
+        try { llama_prefetch_rows(&tensor, invalid.data(), invalid.size()); }
+        catch (const std::runtime_error &) { rejected = true; }
+        GGML_ASSERT(rejected);
+        invalid[0] = 10;
+        rejected = false;
+        try { llama_prefetch_rows(&tensor, invalid.data(), invalid.size()); }
+        catch (const std::runtime_error &) { rejected = true; }
+        GGML_ASSERT(rejected);
+        // The no-buffer / non-host / zero-token paths do not prefetch anything.
+        const size_t old_calls = calls;
+        tensor.buffer = nullptr;
+        llama_prefetch_rows(&tensor, invalid.data(), invalid.size());
+        tensor.buffer = &backing; backing.host = false;
+        llama_prefetch_rows(&tensor, invalid.data(), invalid.size());
+        backing.host = true;
+        llama_prefetch_rows(&tensor, invalid.data(), 0);
+        GGML_ASSERT(old_calls == calls);
+        std::cout << "{\"status\":\"PASS\",\"cases\":" << n_cases
+                  << ",\"shortened\":" << shortened
+                  << ",\"input_ranges\":" << input_ranges << "}" << std::endl;
+        return 0;
+    } catch (const std::exception & exc) {
+        std::cerr << "FAIL: " << exc.what() << "\n";
+        return 1;
+    }
+}

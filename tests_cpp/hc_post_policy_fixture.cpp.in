@@ -1,0 +1,245 @@
+// Host control-flow regression harness. The three @...@ markers are replaced
+// with actual candidate C++ source, never with a second implementation.
+// GGML graph constructors, device capabilities and scheduler assignment below
+// are instrumented mocks: this does not validate CUDA or floating-point math.
+#include "ggml.h"
+#include "ggml-backend.h"
+#include "llama-cparams.h"
+
+#include <algorithm>
+#include <cassert>
+#include <cstdarg>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
+#include <memory>
+#include <vector>
+
+struct ggml_backend_reg { const char * name; };
+struct ggml_backend_device { ggml_backend_reg_t reg; enum ggml_backend_dev_type type; };
+struct ggml_backend { ggml_backend_dev_t dev; bool supported = true; int64_t max_tokens = 1000000; int queries = 0; };
+struct ggml_backend_sched { int bindings = 0; ggml_tensor * tensor = nullptr; ggml_backend_t backend = nullptr; };
+struct ggml_context { std::vector<std::unique_ptr<ggml_tensor>> tensors; };
+
+static ggml_tensor * tensor(ggml_context * ctx, ggml_type type, int64_t a, int64_t b = 1, int64_t c = 1) {
+    auto value = std::make_unique<ggml_tensor>();
+    value->type = type;
+    value->ne[0] = a; value->ne[1] = b; value->ne[2] = c; value->ne[3] = 1;
+    value->nb[0] = type == GGML_TYPE_F32 ? 4 : 2;
+    for (int d = 1; d < GGML_MAX_DIMS; ++d) value->nb[d] = value->nb[d - 1] * value->ne[d - 1];
+    auto result = value.get();
+    ctx->tensors.push_back(std::move(value));
+    return result;
+}
+
+void ggml_abort(const char * file, int line, const char * format, ...) {
+    std::fprintf(stderr, "%s:%d: ", file, line);
+    va_list args; va_start(args, format); std::vfprintf(stderr, format, args); va_end(args);
+    std::abort();
+}
+
+ggml_backend_dev_t ggml_backend_get_device(ggml_backend_t backend) { return backend->dev; }
+ggml_backend_reg_t ggml_backend_dev_backend_reg(ggml_backend_dev_t dev) { return dev->reg; }
+enum ggml_backend_dev_type ggml_backend_dev_type(ggml_backend_dev_t dev) { return dev->type; }
+const char * ggml_backend_reg_name(ggml_backend_reg_t reg) { return reg->name; }
+bool ggml_backend_supports_op(ggml_backend_t backend, const ggml_tensor * op) {
+    ++backend->queries;
+    assert(op->op == GGML_OP_DSV4_HC_POST);
+    return backend->supported && op->ne[2] <= backend->max_tokens;
+}
+void ggml_backend_sched_set_tensor_backend(ggml_backend_sched_t sched, ggml_tensor * t, ggml_backend_t backend) {
+    ++sched->bindings; sched->tensor = t; sched->backend = backend;
+}
+ggml_tensor * ggml_dsv4_hc_post(ggml_context * ctx, ggml_tensor * x, ggml_tensor * residual,
+                               ggml_tensor * post, ggml_tensor * comb) {
+    auto out = tensor(ctx, GGML_TYPE_F32, x->ne[0], residual->ne[1], x->ne[1]);
+    out->op = GGML_OP_DSV4_HC_POST;
+    out->src[0] = x; out->src[1] = residual; out->src[2] = post; out->src[3] = comb;
+    return out;
+}
+ggml_tensor * ggml_view_2d(ggml_context * ctx, ggml_tensor * x, int64_t a, int64_t b, size_t nb1, size_t offset) {
+    auto out = tensor(ctx, x->type, a, b);
+    out->nb[1] = nb1; out->view_offs = offset; out->op = GGML_OP_VIEW; out->src[0] = x;
+    return out;
+}
+ggml_tensor * ggml_mul(ggml_context * ctx, ggml_tensor * a, ggml_tensor * b) {
+    auto out = tensor(ctx, a->type, a->ne[0], a->ne[1], a->ne[2]);
+    out->op = GGML_OP_MUL; out->src[0] = a; out->src[1] = b;
+    return out;
+}
+ggml_tensor * ggml_add(ggml_context * ctx, ggml_tensor * a, ggml_tensor * b) {
+    auto out = tensor(ctx, a->type, a->ne[0], a->ne[1], a->ne[2]);
+    out->op = GGML_OP_ADD; out->src[0] = a; out->src[1] = b;
+    return out;
+}
+ggml_tensor * ggml_reshape_3d(ggml_context * ctx, ggml_tensor * x, int64_t a, int64_t b, int64_t c) {
+    auto out = tensor(ctx, x->type, a, b, c); out->op = GGML_OP_RESHAPE; out->src[0] = x;
+    return out;
+}
+ggml_tensor * ggml_concat(ggml_context * ctx, ggml_tensor * a, ggml_tensor * b, int dim) {
+    auto out = tensor(ctx, a->type, a->ne[0], a->ne[1], a->ne[2]);
+    out->ne[dim] += b->ne[dim]; out->op = GGML_OP_CONCAT; out->src[0] = a; out->src[1] = b;
+    return out;
+}
+
+enum llm_fused_op { LLM_FUSED_OP_DSV4_HC_POST };
+struct fused_node { llm_fused_op op; ggml_tensor * tensor; int il; };
+struct result_mock {
+    std::vector<fused_node> nodes;
+    void add_fused_node(fused_node node) { nodes.push_back(node); }
+};
+struct hparams_mock { int64_t dsv4_hc_mult = 4; uint32_t layers = 2; uint32_t n_layer() const { return layers; } };
+struct llama_model_deepseek4 {
+    struct graph {
+        llama_cparams cparams{};
+        hparams_mock hparams;
+        int64_t n_embd = 16;
+        ggml_context * ctx0;
+        ggml_backend_sched_t sched;
+        result_mock * res;
+        ggml_tensor * build_hc_post(ggml_tensor *, ggml_tensor *, ggml_tensor *, ggml_tensor *, int) const;
+    };
+};
+
+@LAYOUT_AND_BUILDER@
+
+enum arch_mock { LLM_ARCH_DEEPSEEK4, LLM_ARCH_DEEPSEEK41, LLM_ARCH_OTHER };
+struct device_mock { bool is_meta; ggml_backend_dev_t dev; };
+struct model_mock {
+    arch_mock arch = LLM_ARCH_DEEPSEEK41;
+    std::vector<device_mock> devices;
+    llama_split_mode split = LLAMA_SPLIT_MODE_LAYER;
+    std::vector<ggml_backend_dev_t> layer_devices;
+    llama_split_mode split_mode() const { return split; }
+    ggml_backend_dev_t dev_layer(int il) const { return layer_devices.at(il); }
+};
+#define LLAMA_LOG_INFO(...) do {} while (0)
+static void configure_policy(const model_mock & model, const hparams_mock & hparams,
+                             llama_cparams & cparams, const std::vector<ggml_backend_t> & backend_ptrs) {
+@CONTEXT_POLICY@
+}
+
+struct graph_params_mock { llama_cparams cparams{}; };
+static bool same_policy(const graph_params_mock & p, const graph_params_mock & other) {
+    const auto & cparams = p.cparams;
+@REUSE_POLICY@
+    return true;
+}
+
+struct fixture {
+    ggml_backend_reg cuda_reg{"CUDA"}, cpu_reg{"CPU"}, other_reg{"Vulkan"};
+    ggml_backend_device cuda{&cuda_reg, GGML_BACKEND_DEVICE_TYPE_GPU};
+    ggml_backend_device cpu{&cpu_reg, GGML_BACKEND_DEVICE_TYPE_CPU};
+    ggml_backend backend{&cuda};
+    ggml_backend_sched sched;
+    ggml_context ctx;
+    result_mock res;
+    llama_model_deepseek4::graph graph;
+    ggml_tensor * x; ggml_tensor * residual; ggml_tensor * post; ggml_tensor * comb;
+    explicit fixture(int64_t nt = 1) {
+        graph.ctx0 = &ctx; graph.sched = &sched; graph.res = &res;
+        graph.cparams.fused_dsv4_hc_post = true;
+        x = tensor(&ctx, GGML_TYPE_F32, 16, nt);
+        residual = tensor(&ctx, GGML_TYPE_F32, 16, 4, nt);
+        post = tensor(&ctx, GGML_TYPE_F32, 4, nt);
+        comb = tensor(&ctx, GGML_TYPE_F32, 4, 4, nt);
+    }
+    void activate() { graph.cparams.dsv4_hc_post_backends = {nullptr, &backend}; }
+    ggml_tensor * build(int il = 1) { return graph.build_hc_post(x, residual, post, comb, il); }
+    bool layout() { return dsv4_hc_post_layer_layout(x, residual, post, comb); }
+};
+
+static int checks = 0;
+static void check(bool ok) { ++checks; if (!ok) { std::fprintf(stderr, "check %d failed\n", checks); std::abort(); } }
+int main() {
+    { // Inactive policy executes the exact legacy fused branch, no capability or placement calls.
+        fixture f; f.backend.supported = false;
+        auto out = f.build(); check(out->op == GGML_OP_DSV4_HC_POST);
+        check(f.res.nodes.size() == 1 && f.backend.queries == 0 && f.sched.bindings == 0);
+    }
+    for (bool active : {false, true}) {
+        fixture f; if (active) f.activate(); f.graph.cparams.fused_dsv4_hc_post = false;
+        check(f.build()->op == GGML_OP_CONCAT);
+        check(f.res.nodes.empty() && f.backend.queries == 0 && f.sched.bindings == 0);
+    }
+    for (int il : {-1, 0, 2}) {
+        fixture f; f.activate(); check(f.build(il)->op == GGML_OP_CONCAT);
+        check(f.res.nodes.empty() && f.backend.queries == 0 && f.sched.bindings == 0);
+    }
+    for (int64_t nt : {1, 32, 1024}) {
+        fixture f(nt); f.activate(); auto out = f.build();
+        check(out->op == GGML_OP_DSV4_HC_POST && out->ne[0] == 16 && out->ne[1] == 4 && out->ne[2] == nt);
+        check(f.backend.queries == 1 && f.sched.bindings == 1 && f.sched.tensor == out && f.sched.backend == &f.backend);
+        check(f.res.nodes.size() == 1 && f.res.nodes[0].il == 1 && out->src[0] == f.x && out->src[3] == f.comb);
+    }
+    { // Capability is queried on the actual batch, not inferred from the one-token probe.
+        fixture f(32); f.activate(); f.backend.max_tokens = 1;
+        check(f.build()->op == GGML_OP_CONCAT);
+        check(f.backend.queries == 1 && f.sched.bindings == 0 && f.res.nodes.empty());
+    }
+    { fixture f; f.activate(); f.backend.supported = false; check(f.build()->op == GGML_OP_CONCAT); check(f.backend.queries == 1 && f.sched.bindings == 0); }
+    { fixture f(32); f.activate(); f.x->nb[1] *= 2; f.residual->nb[2] *= 2; check(f.layout()); check(f.build()->op == GGML_OP_DSV4_HC_POST); }
+    for (int input = 0; input < 4; ++input) {
+        fixture f; ggml_tensor * values[] = {f.x, f.residual, f.post, f.comb};
+        values[input]->type = GGML_TYPE_F16; check(!f.layout());
+    }
+    for (int dim = 0; dim < 4; ++dim) {
+        fixture f; f.post->nb[dim] += 1; check(!f.layout());
+    }
+    { fixture f; f.comb->view_offs = 2; check(!f.layout()); f.comb->view_offs = 4; check(f.layout()); }
+    { fixture f; check(!dsv4_hc_post_layer_layout(nullptr, f.residual, f.post, f.comb)); check(!dsv4_hc_post_layer_layout(f.x, f.residual, f.post, nullptr)); }
+    for (int input = 0; input < 4; ++input) {
+        fixture f; ggml_tensor * values[] = {f.x, f.residual, f.post, f.comb};
+        values[input]->ne[3] = 2; check(!f.layout());
+    }
+    { fixture f; f.x->ne[1] = 0; check(!f.layout()); }
+    { fixture f; f.residual->ne[0] = 8; check(!f.layout()); }
+    { fixture f; f.residual->ne[1] = 8; check(!f.layout()); }
+    { fixture f; f.post->ne[1] = 7; check(!f.layout()); }
+    { fixture f; f.comb->ne[1] = 8; check(!f.layout()); }
+    { fixture f; f.comb->ne[2] = 7; check(!f.layout()); }
+
+    // Exercise the real constructor's activation policy, with backend metadata mocked.
+    for (int scenario = 0; scenario < 18; ++scenario) {
+        fixture f;
+        llama_cparams params{}; params.fused_dsv4_hc_post = true; params.op_offload = true;
+        model_mock model; model.devices = {{false, &f.cuda}}; model.layer_devices = {&f.cpu, &f.cuda};
+        std::vector<ggml_backend_t> backends{&f.backend};
+        setenv("LLAMA_EXPERIMENTAL_DSV4_HC_POST_LAYERS", "1", 1);
+        bool expect_active = false;
+        switch (scenario) {
+            case 0: expect_active = true; break;
+            case 1: model.arch = LLM_ARCH_DEEPSEEK4; expect_active = true; break;
+            case 2: unsetenv("LLAMA_EXPERIMENTAL_DSV4_HC_POST_LAYERS"); break;
+            case 3: setenv("LLAMA_EXPERIMENTAL_DSV4_HC_POST_LAYERS", "0", 1); break;
+            case 4: setenv("LLAMA_EXPERIMENTAL_DSV4_HC_POST_LAYERS", "true", 1); break;
+            case 5: model.arch = LLM_ARCH_OTHER; break;
+            case 6: params.ctx_type = LLAMA_CONTEXT_TYPE_MTP; break;
+            case 7: params.fused_dsv4_hc_post = false; break;
+            case 8: params.op_offload = false; break;
+            case 9: model.devices.clear(); break;
+            case 10: model.devices.push_back({false, &f.cuda}); break;
+            case 11: model.devices[0].is_meta = true; break;
+            case 12: model.split = LLAMA_SPLIT_MODE_ROW; break;
+            case 13: model.split = LLAMA_SPLIT_MODE_TENSOR; break;
+            case 14: f.cuda.reg = &f.other_reg; break;
+            case 15: model.layer_devices = {&f.cpu, &f.cpu}; break;
+            case 16: backends.clear(); break;
+            case 17: model.split = LLAMA_SPLIT_MODE_NONE; expect_active = true; break;
+        }
+        configure_policy(model, f.graph.hparams, params, backends);
+        check(!params.dsv4_hc_post_backends.empty() == expect_active);
+        if (expect_active) check(params.dsv4_hc_post_backends.size() == 2 && params.dsv4_hc_post_backends[0] == nullptr && params.dsv4_hc_post_backends[1] == &f.backend);
+    }
+    unsetenv("LLAMA_EXPERIMENTAL_DSV4_HC_POST_LAYERS");
+    {
+        fixture f; graph_params_mock a, b;
+        check(same_policy(a, b));
+        a.cparams.dsv4_hc_post_backends = {nullptr, &f.backend}; check(!same_policy(a, b));
+        b.cparams.dsv4_hc_post_backends = a.cparams.dsv4_hc_post_backends; check(same_policy(a, b));
+        a.cparams.fused_dsv4_hc_post = true; check(!same_policy(a, b));
+        b.cparams.fused_dsv4_hc_post = true; check(same_policy(a, b));
+        b.cparams.dsv4_hc_post_backends[0] = &f.backend; check(!same_policy(a, b));
+    }
+    std::printf("PASS %d host control-flow checks; GGML/backend/scheduler mocked; no CUDA/numerical/performance validation\n", checks);
+}

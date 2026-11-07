@@ -1,0 +1,191 @@
+// P14 host-only admission fixture. The original P04 upload helper below is
+// extracted directly from the unchanged 0004 patch, not reimplemented.
+// CPU scheduling estimates MUST match all P04 upload statistics for EVERY
+// checked bank; the fake backend reads H2D pointers only after submission.
+#include "moe/upload_scheduler.hpp"
+#include "moe/upload_pipeline.hpp"
+
+#include <algorithm>
+#include <array>
+#include <cstdint>
+#include <cstring>
+#include <iostream>
+#include <limits>
+#include <random>
+#include <stdexcept>
+#include <string>
+#include <thread>
+#include <vector>
+
+#define CHECK(x) do { if (!(x)) { std::cerr << #x << " at " << __LINE__ << '\n'; std::abort(); } } while (0)
+#define GGML_ASSERT(x) CHECK(x)
+struct moe_cache_slru { struct fill { int32_t expert; int32_t slot; }; };
+@@P04_HELPER@@
+
+using fill = moe_cache_slru::fill;
+using namespace llama_exp;
+
+struct pending {
+    const uint8_t * ptr;
+    size_t dst;
+    size_t length;
+    size_t bank;
+};
+
+static std::vector<fill> make_fills(std::mt19937 & rng, size_t n, unsigned mode) {
+    std::vector<int32_t> ids, slots;
+    for (int i=0;i<160;i++) ids.push_back(i);
+    std::shuffle(ids.begin(),ids.end(),rng);
+    ids.resize(n);
+    std::sort(ids.begin(),ids.end());
+    for (size_t i=0;i<n;i++) slots.push_back((int32_t) i);
+    if (mode%4==0) std::shuffle(slots.begin(),slots.end(),rng);
+    if (mode%4==1) std::reverse(slots.begin(),slots.end());
+    if (mode%4==2) std::shuffle(ids.begin(),ids.end(),rng);
+    std::vector<fill> out;
+    for (size_t i=0;i<n;i++) out.push_back({ids[i],slots[i]});
+    return out;
+}
+
+static void random_oracle() {
+    std::mt19937 rng(0xaabdf17);
+    size_t admitted=0;
+    for (int test=0;test<2400;++test) {
+        size_t banks = 2 + size_t(test%7);
+        size_t n = 1+size_t(test%63);
+        auto fills=make_fills(rng,n,unsigned(test));
+        std::array<size_t,8> widths{};
+        for(size_t b=0;b<banks;++b) widths[b] = size_t(64) << ((b+test/7)%7);
+        size_t capacity = (banks*256)*(size_t(test%250)+1);
+        // Independently compute and feed the real P04 helper. Staging is
+        // disjoint for different banks, just as in P09B.
+        const auto d=moe_upload_scheduler::assess(fills,banks,[&](size_t b){return widths[b];},capacity);
+        CHECK(d.bank_count==banks);
+        CHECK(d.slice_bytes==(capacity/banks/256)*256);
+        size_t bytes=0, staged=0, calls=0, saved=0, packed_banks=0;
+        std::vector<uint8_t> source(160*8192);
+        std::vector<uint8_t> stage(d.slice_bytes*banks,0xab);
+        for (size_t b=0;b<banks;++b) {
+            const size_t width=widths[b];
+            if(width>d.slice_bytes) {CHECK(!d.admitted);break;}
+            size_t used=0;
+            auto oracle=llama_moe_cache_upload_experts(source.data(),width,fills,
+                    stage.data()+b*d.slice_bytes,d.slice_bytes,used,
+                    [&](const uint8_t * p,size_t dst,size_t size) {
+                        CHECK(p && dst+size<=source.size());
+                    });
+            CHECK(used==oracle.staged_bytes);
+            bytes+=oracle.bytes;
+            staged+=oracle.staged_bytes;
+            calls+=oracle.calls;
+            saved+=oracle.calls_saved;
+            packed_banks+=(oracle.staged_bytes>0);
+        }
+        if(*std::max_element(widths.begin(),widths.begin()+banks) <= d.slice_bytes) {
+            CHECK(d.bytes==bytes);
+            CHECK(d.staged_bytes==staged);
+            CHECK(d.upload_calls==calls);
+            CHECK(d.calls_saved==saved);
+            CHECK(d.packing_banks==packed_banks);
+            CHECK(d.admitted == (bytes>=moe_upload_scheduler::min_payload_bytes &&
+                                saved>0 && staged>=moe_upload_scheduler::min_pack_bytes));
+            admitted+=d.admitted;
+        }
+    }
+    CHECK(admitted>100);
+}
+
+static void rejection_and_overflow() {
+    using R=moe_schedule_reason;
+    CHECK(moe_upload_scheduler::assess(std::vector<fill>{},3,[](size_t){return size_t(32);},1<<20).reason==R::empty_fills);
+    CHECK(moe_upload_scheduler::assess(std::vector<fill>{{1,1}},1,[](size_t){return size_t(32);},1<<20).reason==R::bank_count);
+    CHECK(moe_upload_scheduler::assess(std::vector<fill>{{1,1}},9,[](size_t){return size_t(32);},1<<20).reason==R::bank_count);
+    CHECK(moe_upload_scheduler::assess(std::vector<fill>{{1,1}},2,[](size_t){return size_t(32);},200).reason==R::insufficient_staging);
+    CHECK(moe_upload_scheduler::assess(std::vector<fill>{{1,0},{2,1}},2,[](size_t){return size_t(32);},65536).reason==R::too_small);
+    CHECK(moe_upload_scheduler::assess(std::vector<fill>{{1,0},{2,1},{3,2}},2,[](size_t){return size_t(65536);},4<<20).reason==R::no_coalescing);
+    CHECK(moe_upload_scheduler::assess(std::vector<fill>{{3,0},{5,1},{9,2}},2,[](size_t){return size_t(65536);},1024).reason==R::insufficient_staging);
+    auto reject=[](const std::vector<fill> & f,size_t width) {
+        bool caught=false;
+        try { (void)moe_upload_scheduler::assess(f,2,[&](size_t){return width;},8<<20); }
+        catch(const std::exception &) { caught=true; }
+        CHECK(caught);
+    };
+    reject({{-1,0}},32);
+    reject({{0,-1}},32);
+    reject({{1,0}},0);
+    // A width larger than the available slice rejects before touching bytes.
+    CHECK(moe_upload_scheduler::assess(std::vector<fill>{{0,0},{1,1}},2,
+          [](size_t){return std::numeric_limits<size_t>::max();},8<<20).reason==R::insufficient_staging);
+    // With an enormous symbolic budget, overflow must throw before any copy.
+    bool overflow=false;
+    try { (void)moe_upload_scheduler::assess(std::vector<fill>{{0,0},{1,1},{2,2},{3,3}},2,
+                [](size_t){return std::numeric_limits<size_t>::max()/3;},
+                std::numeric_limits<size_t>::max()); }
+    catch(const std::overflow_error &) { overflow=true; }
+    CHECK(overflow);
+}
+
+static void deferred_pipeline() {
+    // The same exact IDs must be used for both the pipelined and serial cases;
+    // bank #0..2 have different widths. The submitted spans can be read only
+    // after the producer and its staging writes have completed.
+    const std::vector<fill> f = {{1,0},{3,1},{7,2},{11,3},{15,4},{19,5}};
+    constexpr size_t banks=3;
+    const std::array<size_t,banks> width = {65536,65536,65536};
+    const size_t cap=3*1024*1024;
+    const auto d=moe_upload_scheduler::assess(f,banks,[&](size_t k){return width[k];},cap);
+    CHECK(d.admitted && d.calls_saved>0 && d.packing_banks==banks);
+    std::vector<std::vector<uint8_t>> source;
+    for(size_t b=0;b<banks;++b) {
+        source.emplace_back(32*width[b]);
+        for(size_t i=0;i<source.back().size();++i) source.back()[i]=uint8_t((i*13+b*43)%251);
+    }
+    std::vector<uint8_t> stage(cap,0x3e);
+    std::vector<pending> queued;
+    size_t next_bank=0;
+    const auto caller=std::this_thread::get_id();
+    const bool ok=moe_upload_pipeline::execute(stage.data(),cap,banks,width[0],
+        [&](size_t b,uint8_t * ptr,size_t available)->moe_upload_batch {
+            moe_upload_batch batch;
+            size_t used=0;
+            const auto actual=llama_moe_cache_upload_experts(source[b].data(),width[b],f,ptr,available,used,
+                [&](const uint8_t * data,size_t dst,size_t bytes) {
+                    batch.spans.push_back({data,dst,bytes});
+                });
+            batch.bytes=actual.bytes;
+            batch.calls_saved=actual.calls_saved;
+            batch.staged_bytes=actual.staged_bytes;
+            return batch;
+        },
+        [&](size_t b,const moe_upload_batch & batch) {
+            CHECK(std::this_thread::get_id()==caller);
+            CHECK(b==next_bank++);
+            for(auto & sp:batch.spans) queued.push_back({sp.data,sp.dst_offset,sp.size,b});
+        },
+        [] { CHECK(false); });
+    CHECK(ok && next_bank==banks);
+    // Deferred device read, ordered enqueues and exact byte parity.
+    std::vector<std::vector<uint8_t>> copies;
+    for(size_t b=0;b<banks;++b) copies.emplace_back(32*width[b],0xff);
+    for(auto & u: queued) {
+        CHECK(u.ptr && u.dst+u.length<=copies[u.bank].size());
+        std::memcpy(copies[u.bank].data()+u.dst,u.ptr,u.length);
+    }
+    for(size_t b=0;b<banks;++b) {
+        for(const auto & x:f) {
+            CHECK(std::memcmp(copies[b].data()+size_t(x.slot)*width[b],
+                              source[b].data()+size_t(x.expert)*width[b],width[b])==0);
+        }
+    }
+}
+
+int main(int argc,char **argv) {
+    CHECK(argc==2);
+    const bool enabled=std::string(argv[1])=="enabled";
+    CHECK(enabled || std::string(argv[1])=="disabled");
+    CHECK(moe_upload_scheduler::enabled()==enabled);
+    random_oracle();
+    rejection_and_overflow();
+    deferred_pipeline();
+    std::cout << "P14 scheduler exact P04 oracle: 2400 workload checks, deferred reads PASS; enabled=" << enabled << '\n';
+}

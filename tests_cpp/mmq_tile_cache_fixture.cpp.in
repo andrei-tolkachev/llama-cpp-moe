@@ -1,0 +1,160 @@
+// P15B source-extracted host fixture. Neither nvcc nor an actual GGML backend.
+// the source fragments are injected from exact pinned code.
+#include <atomic>
+#include <cassert>
+#include <climits>
+#include <cstddef>
+#include <cstdint>
+#include <cstdlib>
+#include <iostream>
+#include <stdexcept>
+#include <thread>
+#include <vector>
+#include "mmq_tile_cache.hpp"
+
+enum ggml_type {
+    GGML_TYPE_Q4_0, GGML_TYPE_Q4_1, GGML_TYPE_Q3_K, GGML_TYPE_Q4_K,
+    GGML_TYPE_IQ3_XXS, GGML_TYPE_IQ3_S, GGML_TYPE_IQ4_XS, GGML_TYPE_IQ4_NL,
+    GGML_TYPE_Q2_K, GGML_TYPE_Q6_K, GGML_TYPE_NVFP4, GGML_TYPE_MXFP4,
+    GGML_TYPE_COUNT
+};
+enum ggml_prec { GGML_PREC_Q8, GGML_PREC_Q4, GGML_PREC_UNDEFINED };
+struct ggml_cuda_mmq_config {
+    ggml_type type = GGML_TYPE_COUNT;
+    int J = 0;
+    int nthreads = 0;
+    int scratch = 0;
+};
+static std::atomic<int64_t> config_calls{0};
+
+static ggml_cuda_mmq_config ggml_cuda_mmq_get_config(
+        ggml_type type, int J, bool fallback, int cc, ggml_prec prec) {
+    config_calls.fetch_add(1, std::memory_order_relaxed);
+    if (cc < 60 || (prec == GGML_PREC_Q4 && type != GGML_TYPE_NVFP4 &&
+                       type != GGML_TYPE_MXFP4) ||
+        (fallback && J > 96) ||
+        (cc < 80 && J > 64) ||
+        (type == GGML_TYPE_IQ3_XXS && J % 16 == 8)) {
+        return {};
+    }
+    // Simulate type-dependent tilings and register/shared-memory pressure.
+    return {type, J, 128 + ((J / 8 + int(type) + cc) % 4)*64,
+            int(type)*13 + J*43 + (fallback ? 31 : 0)};
+}
+static size_t mmq_get_nbytes_shared(ggml_cuda_mmq_config config, int cc) {
+    return size_t(config.scratch) + size_t(config.J)*size_t(cc >= 90 ? 144 : 256);
+}
+
+// ORIGINAL_MMq_SOLVER
+
+// P15B_HELPERS
+
+static constexpr ggml_type quant_types[] = {
+    GGML_TYPE_Q4_0, GGML_TYPE_Q4_1, GGML_TYPE_Q3_K, GGML_TYPE_Q4_K,
+    GGML_TYPE_IQ3_XXS, GGML_TYPE_IQ3_S, GGML_TYPE_IQ4_XS, GGML_TYPE_IQ4_NL,
+    GGML_TYPE_Q2_K, GGML_TYPE_Q6_K, GGML_TYPE_NVFP4, GGML_TYPE_MXFP4
+};
+
+static void check_direct_cache() {
+    llama_exp::mmq_tile_cache<1> c;  // Deliberate collision
+    const llama_exp::mmq_tile_key a{1,128,false,90,49152,1};
+    const llama_exp::mmq_tile_key b{2,128,false,90,49152,1};
+    int count=0;
+    assert(c.get_or_compute(a,[&]{++count; return llama_exp::mmq_tile_result{8,128};}).J==8);
+    assert(c.get_or_compute(a,[&]{++count; return llama_exp::mmq_tile_result{16,256};}).J==8);
+    assert(count==1);
+    assert(c.get_or_compute(b,[&]{++count; return llama_exp::mmq_tile_result{24,256};}).J==24);
+    assert(c.get_or_compute(a,[&]{++count; return llama_exp::mmq_tile_result{32,128};}).J==32);
+    assert(count==3);
+    try {
+        c.get_or_compute(b,[&]() -> llama_exp::mmq_tile_result {
+            ++count; throw std::runtime_error("injected failure");
+        });
+        assert(false && "injected exception should escape");
+    } catch (const std::runtime_error &) {}
+    assert(c.get_or_compute(a,[&]{++count; return llama_exp::mmq_tile_result{40,128};}).J==32);
+    assert(count==4); // throwing miss did not poison or evict old key
+}
+
+static int check_all_cases(bool enabled) {
+    constexpr int64_t columns[]={1,2,7,8,16,32,63,64,127,128,257,1024,8192};
+    constexpr int cc_values[]={50,60,75,80,90,120};
+    constexpr size_t budgets[]={0,512,4096,32768,49152,98304,131072};
+    int cases=0;
+    for (ggml_type type : quant_types) {
+        for (int64_t ncols : columns) {
+            for (bool fallback : {false,true}) {
+                for (int cc : cc_values) {
+                    for (size_t budget : budgets) {
+                        for (ggml_prec prec : {GGML_PREC_Q8,GGML_PREC_Q4}) {
+                            int na=-777, nb=-777;
+                            const int a=ggml_cuda_mmq_get_J_best(type,ncols,fallback,cc,budget,prec,&na);
+                            const int b=ggml_cuda_mmq_get_J_best_moe_cached(type,ncols,fallback,cc,budget,prec,&nb);
+                            if(a!=b||na!=nb){
+                                std::cerr << "PARITY_FAIL: " << int(type) << "," << ncols
+                                          << "," << cc << "," << budget << "," << fallback
+                                          << "," << int(prec) << " -> " << a << "," << b << " (" << na << "," << nb << ")\n";
+                                std::exit(3);
+                            }
+                            ++cases;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    // Supported MoE type should bypass the original selection solver on hits.
+    constexpr ggml_type t=GGML_TYPE_Q3_K;
+    const int64_t ncols=123;
+    int nt=0;
+    (void)ggml_cuda_mmq_get_J_best_moe_cached(t,ncols,false,90,131072,GGML_PREC_Q8,&nt);
+    config_calls.store(0,std::memory_order_relaxed);
+    for(int i=0;i<100;i++) {
+        int out_nt=-777;
+        int J=ggml_cuda_mmq_get_J_best_moe_cached(t,ncols,false,90,131072,GGML_PREC_Q8,&out_nt);
+        assert(J>0 && out_nt>0);
+    }
+    const auto repeated_calls=config_calls.load();
+    if(enabled) assert(repeated_calls==0);
+    else assert(repeated_calls>100);
+    // Never cache unsupported quantization types, even with global opt-in.
+    const ggml_type excluded=GGML_TYPE_NVFP4;
+    (void)ggml_cuda_mmq_get_J_best_moe_cached(excluded,ncols,false,90,131072,GGML_PREC_Q8,&nt);
+    config_calls.store(0,std::memory_order_relaxed);
+    (void)ggml_cuda_mmq_get_J_best_moe_cached(excluded,ncols,false,90,131072,GGML_PREC_Q8,&nt);
+    assert(config_calls.load()>0);
+    return cases;
+}
+
+static void check_threads() {
+    std::atomic<int> failures{0};
+    std::vector<std::thread> pool;
+    for(int thread=0;thread<6;thread++) {
+        pool.emplace_back([thread,&failures] {
+            for(int i=0;i<200;i++) {
+                const ggml_type type=quant_types[(i+thread)%12];
+                const int64_t ncols=1+((i+17*thread)%256);
+                const size_t budget=49152+((i+thread)%3)*24576;
+                const int cc=75+5*((i+thread)%5);
+                const bool fallback=((i+thread)%2)==0;
+                int na=-777,nb=-777;
+                int a=ggml_cuda_mmq_get_J_best(type,ncols,fallback,cc,budget,GGML_PREC_Q8,&na);
+                int b=ggml_cuda_mmq_get_J_best_moe_cached(type,ncols,fallback,cc,budget,GGML_PREC_Q8,&nb);
+                if(a!=b||na!=nb) failures++;
+            }
+        });
+    }
+    for(auto & th:pool)th.join();
+    assert(failures.load()==0);
+}
+
+int main() {
+    const bool enabled=ggml_cuda_mmq_moe_tile_cache_enabled();
+    const int cases=check_all_cases(enabled);
+    check_direct_cache();
+    check_threads();
+    std::cout << "P15B host parity OK; cases=" << cases
+              << "; concurrency=1200; direct_collision_and_exception=PASS; cache_enabled="
+              << enabled << "\n";
+    return 0;
+}

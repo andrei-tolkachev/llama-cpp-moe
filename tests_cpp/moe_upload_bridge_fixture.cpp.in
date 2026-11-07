@@ -1,0 +1,175 @@
+// P09B integration fixture: replaces the placeholders with the EXACT source
+// helper and the EXACT submission block extracted from the patched upstream.
+// No CUDA runtime: backend calls are queued and drained only on synchronize.
+#include "llama-experimental/upload_pipeline.hpp"
+#include "llama-experimental/upload_plan.hpp"
+#include <algorithm>
+#include <cstdint>
+#include <cstdlib>
+#include <cstring>
+#include <exception>
+#include <iostream>
+#include <memory>
+#include <optional>
+#include <random>
+#include <stdexcept>
+#include <string>
+#include <thread>
+#include <vector>
+
+#define CHECK(expr) do { if (!(expr)) { std::cerr << "CHECK failed: " << #expr << " at " << __LINE__ << "\n"; std::abort(); } } while(0)
+#define GGML_ASSERT(expr) CHECK(expr)
+
+struct moe_cache_slru {
+    struct fill {
+        int32_t expert;
+        int32_t slot;
+    };
+};
+@@P04_HELPER@@
+
+struct ggml_tensor {
+    void * data = nullptr;
+    size_t nb[4] = {};
+    std::vector<uint8_t> device_memory;
+};
+struct fake_backend {
+    struct transfer { ggml_tensor * dst; const uint8_t * src; size_t ofs; size_t bytes; };
+    std::vector<transfer> queue;
+    std::thread::id owner = std::this_thread::get_id();
+    size_t enqueues = 0;
+    size_t syncs = 0;
+    size_t fail_at_enqueue = SIZE_MAX;
+};
+using ggml_backend_t = fake_backend *;
+static void ggml_backend_tensor_set_async(ggml_backend_t b, ggml_tensor * t,
+                                            const uint8_t * data, size_t ofs, size_t size) {
+    CHECK(std::this_thread::get_id() == b->owner); // no GPU backend use by producer
+    if (b->enqueues++ == b->fail_at_enqueue) throw std::runtime_error("mocked backend failure");
+    CHECK(t != nullptr && data != nullptr);
+    CHECK(ofs <= t->device_memory.size() && size <= t->device_memory.size() - ofs);
+    b->queue.push_back({t, data, ofs, size}); // deliberately defer reading!
+}
+static void ggml_backend_synchronize(ggml_backend_t b) {
+    CHECK(std::this_thread::get_id() == b->owner);
+    for (const auto & t : b->queue) {
+        std::memcpy(t.dst->device_memory.data() + t.ofs, t.src, t.bytes);
+    }
+    b->queue.clear();
+    b->syncs++;
+}
+struct fake_device {
+    bool upload_staging = false;
+    uint8_t * upload_staging_base = nullptr;
+    size_t upload_staging_capacity = 0;
+};
+struct fake_group { std::vector<ggml_tensor *> banks; };
+struct fake_layer { std::vector<ggml_tensor *> experts; };
+struct fake_trace {
+    bool enabled = true;
+    size_t staging_upload_calls = 0, staging_upload_calls_saved = 0;
+    size_t staging_packed_bytes = 0, pipeline_banks = 0;
+    size_t pipeline_staged_bytes = 0, pipeline_updates = 0, pipeline_fallbacks = 0;
+};
+
+static size_t run_exact_source_block(ggml_backend_t backend, fake_group & g, fake_layer & l,
+                                    fake_device & upload_device, fake_trace & trace,
+                                    std::vector<moe_cache_slru::fill> & fills) {
+    size_t staging_used = 0;
+@@P09B_COPY_BLOCK@@
+    return bytes;
+}
+
+static void run_case(int banks, int n_expert, int n_fill, int size, size_t staging_size,
+                     bool enable_staging, bool expect_pipeline, uint32_t seed, bool backend_fail) {
+    fake_backend b;
+    b.fail_at_enqueue = backend_fail ? 1 : SIZE_MAX;
+    const int n_slot = n_expert + 1;
+    std::mt19937 gen(seed);
+    std::vector<std::vector<uint8_t>> sources(banks);
+    std::vector<ggml_tensor> source_tensors(banks), gpu_banks(banks);
+    std::vector<uint8_t> stage(staging_size, 0xc1);
+    fake_group g;
+    fake_layer l;
+    fake_trace tr;
+    fake_device d{enable_staging, enable_staging ? stage.data() : nullptr, staging_size};
+    std::vector<int> selected;
+    for (int i = 0; i < n_expert; ++i) selected.push_back(i);
+    std::shuffle(selected.begin(), selected.end(), gen);
+    selected.resize(n_fill);
+    std::sort(selected.begin(), selected.end());
+    std::vector<int> slots;
+    for (int i = 0; i < n_fill; ++i) slots.push_back(i);
+    if (seed % 3 == 0) std::shuffle(slots.begin(), slots.end(), gen);
+    std::vector<moe_cache_slru::fill> fills;
+    for (int i = 0; i < n_fill; ++i) fills.push_back({selected[i], slots[i]});
+    for (int ip = 0; ip < banks; ++ip) {
+        int esz = size + ip*32;
+        auto & src = sources[ip];
+        src.resize(size_t(esz)*n_expert);
+        for (size_t i = 0; i < src.size(); ++i) src[i] = uint8_t((i*31 + ip*13 + seed) % 251);
+        source_tensors[ip].data = src.data();
+        source_tensors[ip].nb[2] = size_t(esz);
+        gpu_banks[ip].device_memory.assign(size_t(esz)*n_slot, 0xde);
+        l.experts.push_back(&source_tensors[ip]);
+        g.banks.push_back(&gpu_banks[ip]);
+    }
+    size_t wanted = 0;
+    for (int ip = 0; ip < banks; ++ip) wanted += size_t(size + ip*32)*n_fill;
+    bool threw = false;
+    size_t actual = 0;
+    try { actual = run_exact_source_block(&b, g, l, d, tr, fills); }
+    catch (const std::runtime_error &) { threw = true; }
+    if (backend_fail) {
+        CHECK(threw);
+        CHECK(b.queue.empty()); // abort fence MUST have drained in-flight DMA
+        CHECK(b.syncs > 0);
+        return;
+    }
+    CHECK(!threw && actual == wanted);
+    if (tr.pipeline_updates != (expect_pipeline ? 1u : 0u)) {
+        std::cerr << "pipeline mismatch banks=" << banks << " seed=" << seed
+                  << " staging=" << staging_size << " enabled=" << enable_staging
+                  << " expect=" << expect_pipeline << " actual=" << tr.pipeline_updates << "\n";
+    }
+    CHECK(tr.pipeline_updates == (expect_pipeline ? 1u : 0u));
+    // No one may reuse staging until mock backend flushes it.
+    CHECK(b.queue.size() > 0);
+    ggml_backend_synchronize(&b);
+    CHECK(b.queue.empty());
+    for (int ip = 0; ip < banks; ++ip) {
+        auto & dst = gpu_banks[ip].device_memory;
+        std::vector<uint8_t> ref(dst.size(), 0xde);
+        size_t width = size + ip*32;
+        for (auto f : fills) {
+            std::memcpy(ref.data() + size_t(f.slot)*width,
+                        sources[ip].data() + size_t(f.expert)*width, width);
+        }
+        CHECK(dst == ref);
+    }
+}
+int main(int argc, char ** argv) {
+    CHECK(argc == 3);
+    bool enabled = std::string(argv[1]) == "enabled";
+    bool shared_enabled = std::string(argv[2]) == "shared";
+    CHECK(shared_enabled || std::string(argv[2]) == "baseline");
+    CHECK(llama_exp::moe_fill_plan::enabled() == shared_enabled);
+    CHECK(enabled || std::string(argv[1]) == "disabled");
+    CHECK(llama_exp::moe_upload_pipeline::enabled() == enabled);
+    // Deterministic stress over different bank counts, fill orders and sizes.
+    for (uint32_t k = 1; k <= 64; ++k) {
+        int banks = 2 + (k%4);
+        size_t capacity = 512*1024;
+        run_case(banks, 60, 25, 128 + int(k%5)*32,
+                 capacity, true, enabled, k, false);
+    }
+    run_case(1, 24, 12, 128, 8192, true, false, 101, false); // <=1 bank
+    run_case(9, 24, 12, 128, 8192, true, false, 102, false); // >8 banks
+    run_case(3, 24, 12, 128, 512, true, false, 103, false); // slice too small
+    run_case(3, 24, 12, 128, 0, false, false, 104, false); // no staging
+    if (enabled) {
+        run_case(3, 24, 12, 128, 16*1024, true, true, 105, true); // queued backend failure
+    }
+    std::cout << "P09B/P12 exact-source mock backend scenarios PASS pipeline=" << enabled << " shared=" << shared_enabled << "\n";
+    return 0;
+}

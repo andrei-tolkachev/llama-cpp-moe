@@ -1,0 +1,56 @@
+// Appended to the same source-extracted bridge as test_moe_scheduler_bridge.py.
+int main(int argc, char **argv) {
+    CHECK(argc == 3);
+    const std::string shape(argv[1]);
+    const int updates = std::stoi(argv[2]);
+    CHECK(updates >= 100);
+    std::vector<moe_cache_slru::fill> fills;
+    if (shape == "one") fills = {{2,3}};
+    else if (shape == "scattered") fills = {{1,2},{3,7},{5,4},{7,0}};
+    else if (shape == "packable") fills = {{1,2},{3,3},{5,4},{7,5}};
+    else if (shape == "direct") fills = {{1,2},{2,3},{3,4},{4,5}};
+    else return 2;
+    constexpr size_t banks = 3, width = 4096, experts = 8;
+    std::vector<uint8_t> stage(3*1024*1024, 0);
+    fake_device d{true,stage.data(),stage.size(),nullptr};
+    ggml_tensor weights[banks], cached[banks], slotmap;
+    std::vector<uint8_t> src[banks], ref[banks];
+    const uint8_t slotdata[4] = {1,2,3,4};
+    slotmap.device_memory.resize(4);
+    fake_group g;
+    fake_layer l;
+    for (size_t i=0; i<banks; ++i) {
+        src[i].resize(width*experts);
+        for (size_t j=0; j<src[i].size(); ++j) src[i][j] = uint8_t(j*3+j/width+i);
+        weights[i].data = src[i].data();
+        weights[i].nb[2] = width;
+        cached[i].device_memory.resize(width*experts);
+        ref[i].resize(width*experts);
+        for (auto f : fills) std::memcpy(ref[i].data()+width*f.slot, src[i].data()+width*f.expert, width);
+        l.experts.push_back(&weights[i]);
+        g.banks.push_back(&cached[i]);
+    }
+    fake_backend b;
+    fake_trace trace;
+    auto update = [&] {
+        const auto bytes = run_exact_source_block(&b, g, l, d, trace, fills, slotmap, slotdata);
+        CHECK(bytes == banks*width*fills.size());
+    };
+    for (int i=0;i<64;++i) update();
+    ggml_backend_synchronize(&b);
+    trace = fake_trace{};
+    b.enqueues = 0;
+    const auto start = std::chrono::steady_clock::now();
+    for (int i=0;i<updates;++i) update();
+    ggml_backend_synchronize(&b);
+    const auto elapsed = std::chrono::duration<double,std::micro>(std::chrono::steady_clock::now()-start).count();
+    for (size_t i=0; i<banks; ++i) CHECK(cached[i].device_memory == ref[i]);
+    CHECK(std::equal(slotdata, slotdata+4, slotmap.device_memory.begin()));
+    std::cout << "{\"shape\":\"" << shape << "\",\"updates\":" << updates
+              << ",\"us_per_update\":" << elapsed / updates
+              << ",\"pipeline_updates\":" << trace.pipeline_updates
+              << ",\"inline_updates\":" << trace.pipeline_inline_updates
+              << ",\"enqueues\":" << b.enqueues << ",\"packed_bytes\":" << trace.staging_packed_bytes
+              << ",\"bank_bytes_per_update\":" << banks*width*fills.size()
+              << ",\"parity\":true}\n";
+}

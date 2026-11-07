@@ -1,0 +1,118 @@
+// Linux-only. Evicts only our fresh, private scratch file, never model weights.
+#include "llama-mmap.h"
+#include <algorithm>
+#include <cassert>
+#include <cerrno>
+#include <chrono>
+#include <cstring>
+#include <fcntl.h>
+#include <fstream>
+#include <iostream>
+#include <string>
+#include <sys/mman.h>
+#include <sys/resource.h>
+#include <unistd.h>
+#define LLAMA_LOG_WARN(...) std::fprintf(stderr, __VA_ARGS__)
+@@PREFETCH@@
+struct ggml_tensor { const void * data; size_t nb[4]; };
+struct expert_layer { bool readahead; std::vector<ggml_tensor *> experts; };
+struct fill { int expert; };
+struct counters {
+    bool enabled = true;
+    size_t readahead_updates = 0, readahead_ranges = 0, readahead_bytes = 0, readahead_alloc_skips = 0;
+    int64_t readahead_host_us = 0;
+};
+static int64_t ggml_time_us() {
+    return std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
+}
+static void route(const expert_layer & l, bool batched, const std::vector<fill> & fills, counters & trace) {
+    const auto trace_plan_end = ggml_time_us();
+@@ROUTE@@
+}
+static int64_t read_bytes() {
+    std::ifstream f("/proc/self/io");
+    std::string key;
+    int64_t n;
+    while (f >> key >> n) if (key == "read_bytes:") return n;
+    return -1;
+}
+int main(int argc,char **argv) {
+    assert(argc == 5);
+    const bool prefetch = std::string(argv[2]) == "B", warm = std::string(argv[3]) == "warm";
+    const bool random = std::string(argv[4]) == "random";
+    const size_t width = 1u<<20, total = 192*width;
+    const size_t pg = (size_t)sysconf(_SC_PAGESIZE);
+    const int fd = open(argv[1], O_RDONLY);
+    assert(fd >= 0 && posix_fadvise(fd,0,0,POSIX_FADV_DONTNEED) == 0);
+    std::vector<unsigned char> reset_vec(total/pg);
+    const char *ptr = (const char*)mmap(nullptr,total,PROT_READ,MAP_SHARED,fd,0);
+    assert(ptr != MAP_FAILED);
+    if (!warm) {
+        for (int attempt=0; attempt < 12; ++attempt) {
+            assert(mincore(const_cast<char*>(ptr), total, reset_vec.data()) == 0);
+            if (std::none_of(reset_vec.begin(),reset_vec.end(),[](unsigned char v){return v&1;})) break;
+            // Wait for this test file's previous speculative readahead to complete.
+            usleep(20000);
+            assert(fsync(fd)==0 && posix_fadvise(fd,0,0,POSIX_FADV_DONTNEED)==0);
+        }
+    }
+    if (random) assert(madvise((void*)ptr,total,MADV_RANDOM) == 0);
+    llama_memory_ranges ranges;
+    for (int bank=0;bank<3;++bank)
+        for (int expert : {2,11,22,37,45,59}) ranges.push_back({ptr+(bank*64+expert)*width,width});
+    std::vector<char> out(ranges.size()*width,42);
+    const auto copy = [&] {
+        for(size_t i=0;i<ranges.size();++i)
+            std::memcpy(out.data()+i*width,ranges[i].addr,ranges[i].size);
+    };
+    if(warm) copy();
+    std::vector<unsigned char> vec(width/pg);
+    size_t resident=0;
+    for(auto r:ranges){
+        assert(mincore(const_cast<void*>(r.addr),r.size,vec.data())==0);
+        for(auto v:vec) resident+=v&1;
+    }
+    if (!warm && resident) {
+        // Reject *before* the timed workload, so no timing can determine a retry.
+        for (auto r : ranges) {
+            auto offset = (const char*)r.addr - ptr;
+            assert(posix_fadvise(fd,offset,r.size,POSIX_FADV_DONTNEED)==0);
+        }
+        std::cout<<"{\"resident_before\":"<<resident<<",\"pages\":"<<ranges.size()*vec.size()<<"}\n";
+        munmap((void*)ptr,total);close(fd);
+        return 0;
+    }
+    ggml_tensor banks[3]{};
+    expert_layer layer{prefetch,{}};
+    std::vector<fill> fills{{2},{11},{22},{37},{45},{59}};
+    for (size_t i=0; i<3; ++i) {
+        banks[i].data=ptr+i*64*width;
+        banks[i].nb[2]=width;
+        layer.experts.push_back(&banks[i]);
+    }
+    counters trace;
+    route(layer,true,fills,trace);
+    route(layer,false,{},trace);
+    assert(trace.readahead_updates==0);
+    const auto io_before=read_bytes();
+    rusage a{},b{};
+    assert(getrusage(RUSAGE_SELF,&a)==0);
+    const auto t0=std::chrono::steady_clock::now();
+    route(layer,false,fills,trace);
+    assert(trace.readahead_ranges==(prefetch ? 18u : 0u));
+    assert(trace.readahead_bytes==(prefetch ? 18*width : 0u));
+    const auto ta=std::chrono::steady_clock::now();
+    copy();
+    const auto t1=std::chrono::steady_clock::now();
+    assert(getrusage(RUSAGE_SELF,&b)==0);
+    const auto io_after=read_bytes();
+    uint64_t hash=14695981039346656037ULL;
+    for(auto c:out) hash=(hash^uint8_t(c))*1099511628211ULL;
+    std::cout<<"{\"total_ms\":"<<std::chrono::duration<double,std::milli>(t1-t0).count()
+             <<",\"advice_ms\":"<<std::chrono::duration<double,std::milli>(ta-t0).count()
+             <<",\"hint_updates\":"<<trace.readahead_updates<<",\"hint_bytes\":"<<trace.readahead_bytes
+             <<",\"major\":"<<(b.ru_majflt-a.ru_majflt)<<",\"minor\":"<<(b.ru_minflt-a.ru_minflt)
+             <<",\"read_bytes\":"<<(io_after-io_before)<<",\"resident_before\":"<<resident
+             <<",\"pages\":"<<ranges.size()*vec.size()<<",\"checksum\":\""<<hash<<"\"}\n";
+    munmap((void*)ptr,total);close(fd);
+}

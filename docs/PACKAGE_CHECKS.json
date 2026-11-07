@@ -1,0 +1,17 @@
+{
+  "status": "VERIFIED_WITH_DOCUMENTED_LIMITS",
+  "python_unit_tests": 64,
+  "overlay": "29 cumulative patches replayed;42 touched source/assets equal measured and built source; all inherited files compared",
+  "production_build_artifacts": 62,
+  "installed_models": [
+    "qwen",
+    "deepseek"
+  ],
+  "portable_long_runner": "Real Qwen and DeepSeek 4K retrieval passed; four short requests and 12 tasks completed, scoring 11/12 and 9/12",
+  "portable_screen": "Real Qwen execution PASS",
+  "startup_planner": "Two-phase native estimates and real Qwen --run PASS",
+  "historical_cpu_fusion_numerics": "1392 cases,5554176 exact float comparisons PASS; no new CPU arithmetic in the phase patch",
+  "actual_long_context": "Both models 32K/64K completed; three-key checks PASS; broad quality parity unproven",
+  "full_filled_128k_256k": "NOT_VALIDATED",
+  "github_publication": "Prepared locally; verify GitHub commit and release separately"
+}
